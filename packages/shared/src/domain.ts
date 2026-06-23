@@ -29,3 +29,33 @@ export const ARTIFACT_KINDS = [
 ] as const;
 
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
+
+export type Task = {
+  id: string;
+  title: string;
+  prompt: string;
+  status: TaskStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Artifact = {
+  id: string;
+  taskId: string;
+  kind: ArtifactKind;
+  title: string;
+  content: string;
+  createdAt: string;
+};
+
+export type ApprovalStatus = "pending" | "approved" | "rejected";
+
+export type Approval = {
+  id: string;
+  taskId: string;
+  kind: "apply_patch" | "run_command";
+  status: ApprovalStatus;
+  payload: Record<string, unknown>;
+  createdAt: string;
+  decidedAt?: string;
+};
