@@ -26,6 +26,14 @@ export const demoEvents: AgentFlowEvent[] = [
   event("task_completed", "模拟 Agent 工作流已完成"),
 ];
 
+demoEvents.splice(
+  demoEvents.length - 1,
+  0,
+  event("agent_started", "summary Agent 开始执行", "summary"),
+  event("artifact_created", "最终报告已生成", "summary"),
+  event("agent_completed", "summary Agent 执行完成", "summary"),
+);
+
 export const demoArtifacts: Artifact[] = [
   artifact("plan", "实现计划", "1. 阅读需求并确认受影响页面。\n2. 生成最小可审查补丁。\n3. 补充测试并等待用户审批。"),
   artifact("patch", "patch.diff", "diff --git a/src/app/login/page.tsx b/src/app/login/page.tsx\n+ export default function LoginPage() {\n+   return <LoginForm />;\n+ }"),

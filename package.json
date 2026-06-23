@@ -12,6 +12,7 @@
     "demo:api": "pnpm --filter @agent-flow/api dev",
     "demo:web": "pnpm --filter @agent-flow/web start",
     "smoke:v0": "node scripts/v0-smoke.mjs",
+    "e2e:v0": "playwright test",
     "runner:connect": "pnpm --dir apps/runner exec tsx src/index.ts connect",
     "lint": "turbo lint",
     "test": "turbo test && pnpm run test:smoke",
@@ -19,6 +20,7 @@
     "typecheck": "turbo typecheck"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.0",
     "@types/node": "^22.19.0",
     "turbo": "^2.5.0",
     "typescript": "^5.8.0",

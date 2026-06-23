@@ -143,6 +143,9 @@ export function Dashboard() {
             <p>创建开发任务，查看模拟 Agent 流程、产物和事件日志</p>
           </div>
           <div className="actions">
+            <span className="sr-only" data-testid="api-status">
+              {apiOnline ? "API online" : "demo mode"}
+            </span>
             <span className={`badge ${apiOnline ? "green" : "amber"}`}>{apiOnline ? "API 在线" : "示例模式"}</span>
             <button className="btn secondary" onClick={() => void loadTasks(api, setTasks, setSelectedTaskId, setApiOnline, setLoadState)} type="button">
               <RefreshCw size={14} /> 刷新
@@ -210,6 +213,7 @@ function TaskList({
           tasks.map((task) => (
             <button
               className={`task-row ${selectedTaskId === task.id ? "active" : ""}`}
+              data-testid="task-row"
               key={task.id}
               onClick={() => onSelect(task.id)}
               type="button"
@@ -251,13 +255,13 @@ function TaskCreateForm({
       <form className="panel-body form" onSubmit={onSubmit}>
         <label className="field">
           <span>任务标题</span>
-          <input className="input" onChange={(event) => onTitleChange(event.target.value)} value={title} />
+          <input className="input" data-testid="task-title-input" onChange={(event) => onTitleChange(event.target.value)} value={title} />
         </label>
         <label className="field">
           <span>开发需求</span>
-          <textarea className="textarea" onChange={(event) => onPromptChange(event.target.value)} value={prompt} />
+          <textarea className="textarea" data-testid="task-prompt-input" onChange={(event) => onPromptChange(event.target.value)} value={prompt} />
         </label>
-        <button className="btn" disabled={disabled || !title.trim() || !prompt.trim()} type="submit">
+        <button className="btn" data-testid="task-submit-button" disabled={disabled || !title.trim() || !prompt.trim()} type="submit">
           <Send size={14} /> 启动任务
         </button>
       </form>
@@ -304,7 +308,7 @@ function Timeline({ events }: { events: AgentFlowEvent[] }) {
       </div>
       <div className="panel-body step-list">
         {agentEvents.map((event) => (
-          <div className="step done" key={event.id}>
+          <div className="step done" data-testid="timeline-step" key={event.id}>
             <div className="step-icon">{agentLabels[event.agentRole as AgentRole].slice(0, 1)}</div>
             <div>
               <strong>{agentLabels[event.agentRole as AgentRole]} Agent</strong>
@@ -334,6 +338,7 @@ function ArtifactPanel({
         {artifacts.map((artifact) => (
           <button
             className={`tab ${selectedArtifactId === artifact.id ? "active" : ""}`}
+            data-testid={`artifact-tab-${artifact.kind}`}
             key={artifact.id}
             onClick={() => onSelect(artifact.id)}
             type="button"
@@ -342,7 +347,7 @@ function ArtifactPanel({
           </button>
         ))}
       </div>
-      <div className="artifact-content">
+      <div className="artifact-content" data-testid="artifact-content">
         {selectedArtifact ? (
           <>
             <h3>{selectedArtifact.title}</h3>
@@ -380,7 +385,7 @@ function TaskInfo({
           当前 V0 页面会通过 EventSource 订阅任务事件，并按事件 id 去重展示。
         </div>
         <div style={{ height: 8 }} />
-        <div className="log">
+        <div className="log" data-testid="event-log">
           {events.slice(-5).map((event) => (
             <div key={event.id}>[{event.type}] {event.message}</div>
           ))}
