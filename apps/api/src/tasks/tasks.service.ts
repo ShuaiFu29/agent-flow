@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { MessageEvent } from "@nestjs/common";
 import type { Observable } from "rxjs";
 import { from, map } from "rxjs";
@@ -10,6 +10,7 @@ import type {
   ArtifactKind,
   Task,
 } from "@agent-flow/shared";
+import { TASKS_REPOSITORY, type TasksRepository } from "./tasks.repository";
 
 type CreateTaskInput = {
   title: string;
@@ -18,9 +19,10 @@ type CreateTaskInput = {
 
 @Injectable()
 export class TasksService {
-  private readonly tasks = new Map<string, Task>();
-  private readonly events = new Map<string, AgentFlowEvent[]>();
-  private readonly artifacts = new Map<string, Artifact[]>();
+  constructor(
+    @Inject(TASKS_REPOSITORY)
+    private readonly tasksRepository: TasksRepository,
+  ) {}
 
   createTask(input: CreateTaskInput): Task {
     const now = new Date().toISOString();
@@ -33,9 +35,7 @@ export class TasksService {
       updatedAt: now,
     };
 
-    this.tasks.set(task.id, task);
-    this.events.set(task.id, []);
-    this.artifacts.set(task.id, []);
+    this.tasksRepository.createTask(task);
     this.addEvent(task.id, "task_created", "任务已创建");
 
     this.runSimulatedWorkflow(task);
@@ -45,18 +45,18 @@ export class TasksService {
       status: "completed",
       updatedAt: new Date().toISOString(),
     };
-    this.tasks.set(task.id, completedTask);
+    this.tasksRepository.updateTask(completedTask);
     this.addEvent(task.id, "task_completed", "模拟 Agent 工作流已完成");
 
     return completedTask;
   }
 
   listTasks(): Task[] {
-    return Array.from(this.tasks.values());
+    return this.tasksRepository.listTasks();
   }
 
   getTask(taskId: string): Task {
-    const task = this.tasks.get(taskId);
+    const task = this.tasksRepository.getTask(taskId);
     if (!task) {
       throw new NotFoundException(`Task ${taskId} was not found.`);
     }
@@ -67,13 +67,13 @@ export class TasksService {
   listEvents(taskId: string): AgentFlowEvent[] {
     this.getTask(taskId);
 
-    return this.events.get(taskId) ?? [];
+    return this.tasksRepository.listEvents(taskId);
   }
 
   listArtifacts(taskId: string): Artifact[] {
     this.getTask(taskId);
 
-    return this.artifacts.get(taskId) ?? [];
+    return this.tasksRepository.listArtifacts(taskId);
   }
 
   streamEvents(taskId: string): Observable<MessageEvent> {
@@ -146,7 +146,7 @@ export class TasksService {
       createdAt: new Date().toISOString(),
     };
 
-    this.artifacts.get(taskId)?.push(createdArtifact);
+    this.tasksRepository.addArtifact(createdArtifact);
 
     return createdArtifact;
   }
@@ -166,7 +166,7 @@ export class TasksService {
       createdAt: new Date().toISOString(),
     };
 
-    this.events.get(taskId)?.push(event);
+    this.tasksRepository.addEvent(event);
 
     return event;
   }
