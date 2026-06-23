@@ -9,4 +9,3 @@ Planning, roadmap, progress, and design documents live outside this project unde
 ```text
 D:\project\agent\docs
 ```
-
