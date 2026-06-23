@@ -36,12 +36,24 @@ describe("AgentFlowApiClient", () => {
     });
   });
 
-  it("loads tasks, events, and artifacts by task id", async () => {
+  it("loads tasks, events, artifacts, approvals, audit events, workspaces, and task sources", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(jsonResponse([{ id: "task_1", title: "任务", prompt: "提示", status: "completed" }]))
+      .mockResolvedValueOnce(
+        jsonResponse([{ id: "task_1", title: "任务", prompt: "提示", status: "completed" }]),
+      )
       .mockResolvedValueOnce(jsonResponse([{ id: "event_1", taskId: "task_1", type: "task_created" }]))
-      .mockResolvedValueOnce(jsonResponse([{ id: "artifact_1", taskId: "task_1", kind: "plan" }]));
+      .mockResolvedValueOnce(jsonResponse([{ id: "artifact_1", taskId: "task_1", kind: "plan" }]))
+      .mockResolvedValueOnce(
+        jsonResponse([{ id: "approval_1", taskId: "task_1", kind: "apply_patch", status: "pending" }]),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse([{ id: "audit_1", taskId: "task_1", source: "system", action: "task_created" }]),
+      )
+      .mockResolvedValueOnce(jsonResponse([{ id: "workspace_1", name: "demo-app", status: "online" }]))
+      .mockResolvedValueOnce(
+        jsonResponse({ id: "source_1", taskId: "task_1", kind: "manual", title: "任务来源" }),
+      );
     vi.stubGlobal("fetch", fetchMock);
 
     const client = new AgentFlowApiClient("http://localhost:4000");
@@ -49,10 +61,21 @@ describe("AgentFlowApiClient", () => {
     await expect(client.listTasks()).resolves.toHaveLength(1);
     await expect(client.listEvents("task_1")).resolves.toHaveLength(1);
     await expect(client.listArtifacts("task_1")).resolves.toHaveLength(1);
+    await expect(client.listApprovals("task_1")).resolves.toHaveLength(1);
+    await expect(client.listAuditEvents("task_1")).resolves.toHaveLength(1);
+    await expect(client.listWorkspaces()).resolves.toHaveLength(1);
+    await expect(client.getTaskSource("task_1")).resolves.toMatchObject({
+      id: "source_1",
+      taskId: "task_1",
+    });
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:4000/tasks", { cache: "no-store" });
     expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:4000/tasks/task_1/events", { cache: "no-store" });
     expect(fetchMock).toHaveBeenNthCalledWith(3, "http://localhost:4000/tasks/task_1/artifacts", { cache: "no-store" });
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "http://localhost:4000/tasks/task_1/approvals", { cache: "no-store" });
+    expect(fetchMock).toHaveBeenNthCalledWith(5, "http://localhost:4000/tasks/task_1/audit", { cache: "no-store" });
+    expect(fetchMock).toHaveBeenNthCalledWith(6, "http://localhost:4000/workspaces", { cache: "no-store" });
+    expect(fetchMock).toHaveBeenNthCalledWith(7, "http://localhost:4000/tasks/task_1/source", { cache: "no-store" });
   });
 
   it("throws a useful error when the API returns a failure", async () => {

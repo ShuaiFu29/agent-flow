@@ -6,13 +6,15 @@ test("V0 demo flow creates a task and exposes timeline, artifacts, and event log
   await page.goto("/");
 
   await expect(page.getByTestId("api-status")).toContainText("API online");
+  await page.getByTestId("create-task-view-button").click();
+  await expect(page.getByRole("heading", { name: "创建开发任务", exact: true })).toBeVisible();
 
   const title = `V0 E2E ${Date.now()}`;
   await page.getByTestId("task-title-input").fill(title);
   await page.getByTestId("task-prompt-input").fill("验证 V0 创建任务、时间线、产物和事件日志。");
-  await page.getByTestId("task-submit-button").click();
+  await page.getByRole("button", { name: "创建任务", exact: true }).click();
 
-  await expect(page.getByTestId("task-row").filter({ hasText: title })).toBeVisible();
+  await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
   await expect(page.getByTestId("timeline-step")).toHaveCount(5);
 
   await page.getByTestId("artifact-tab-patch").click();
@@ -29,6 +31,7 @@ test("V0 dashboard falls back to demo mode when the API is unavailable", async (
 
   await expect(page.getByTestId("api-status")).toContainText("demo mode");
   await expect(page.getByTestId("task-row")).toHaveCount(1);
+  await page.locator('[data-testid^="task-open-"]').first().click();
   await expect(page.getByTestId("timeline-step")).toHaveCount(5);
   await expect(page.getByTestId("artifact-content")).not.toBeEmpty();
 });
@@ -41,8 +44,8 @@ test("V0 product skeleton exposes real primary navigation views", async ({ page 
   await page.goto("/");
 
   const views = [
-    ["nav-tasks", "任务工作台"],
-    ["nav-workspace", "工作区"],
+    ["nav-tasks", "开发任务工作台"],
+    ["nav-workspace", "选择工作区"],
     ["nav-artifacts", "产物中心"],
     ["nav-approvals", "审批中心"],
     ["nav-audit", "审计日志"],

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { InMemoryTasksRepository } from "./tasks.repository";
 
 describe("InMemoryTasksRepository", () => {
-  it("stores tasks, events, and artifacts behind a repository boundary", () => {
+  it("stores tasks, events, artifacts, approvals, audit events, and task sources behind a repository boundary", () => {
     const repository = new InMemoryTasksRepository();
     const task = {
       id: "task_1",
@@ -27,10 +27,38 @@ describe("InMemoryTasksRepository", () => {
       content: "Plan content",
       createdAt: "2026-06-24T00:00:00.000Z",
     };
+    const approval = {
+      id: "approval_1",
+      taskId: task.id,
+      kind: "apply_patch" as const,
+      status: "pending" as const,
+      payload: { artifactId: artifact.id },
+      createdAt: "2026-06-24T00:00:00.000Z",
+    };
+    const auditEvent = {
+      id: "audit_1",
+      taskId: task.id,
+      workspaceId: "workspace_1",
+      source: "system" as const,
+      action: "approval_requested",
+      message: "Approval required.",
+      createdAt: "2026-06-24T00:00:00.000Z",
+    };
+    const taskSource = {
+      id: "source_1",
+      taskId: task.id,
+      kind: "manual" as const,
+      title: "Manual request",
+      content: "Implement V0 closure.",
+      createdAt: "2026-06-24T00:00:00.000Z",
+    };
 
     repository.createTask(task);
     repository.addEvent(event);
     repository.addArtifact(artifact);
+    repository.addApproval(approval);
+    repository.addAuditEvent(auditEvent);
+    repository.setTaskSource(taskSource);
     repository.updateTask({
       ...task,
       status: "completed",
@@ -45,9 +73,14 @@ describe("InMemoryTasksRepository", () => {
     );
     expect(repository.listEvents(task.id)).toEqual([event]);
     expect(repository.listArtifacts(task.id)).toEqual([artifact]);
+    expect(repository.listApprovals()).toEqual([approval]);
+    expect(repository.listApprovals(task.id)).toEqual([approval]);
+    expect(repository.listAuditEvents()).toEqual([auditEvent]);
+    expect(repository.listAuditEvents(task.id)).toEqual([auditEvent]);
+    expect(repository.getTaskSource(task.id)).toEqual(taskSource);
   });
 
-  it("returns empty event and artifact collections for known tasks without records", () => {
+  it("returns empty event, artifact, approval, and audit collections for known tasks without records", () => {
     const repository = new InMemoryTasksRepository();
 
     repository.createTask({
@@ -61,5 +94,19 @@ describe("InMemoryTasksRepository", () => {
 
     expect(repository.listEvents("task_empty")).toEqual([]);
     expect(repository.listArtifacts("task_empty")).toEqual([]);
+    expect(repository.listApprovals("task_empty")).toEqual([]);
+    expect(repository.listAuditEvents("task_empty")).toEqual([]);
+    expect(repository.getTaskSource("task_empty")).toBeUndefined();
+  });
+
+  it("seeds workspace records for the V0 workspace page", () => {
+    const repository = new InMemoryTasksRepository();
+
+    expect(repository.listWorkspaces()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "demo-app", status: "online" }),
+        expect.objectContaining({ name: "admin-dashboard", status: "offline" }),
+      ]),
+    );
   });
 });

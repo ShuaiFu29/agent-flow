@@ -1,4 +1,4 @@
-import type { AgentFlowEvent, Artifact, Task } from "@agent-flow/shared";
+import type { AgentFlowEvent, Approval, Artifact, AuditEvent, Task, TaskSource, Workspace } from "@agent-flow/shared";
 
 type CreateTaskInput = {
   title: string;
@@ -30,6 +30,26 @@ export class AgentFlowApiClient {
 
   async listArtifacts(taskId: string): Promise<Artifact[]> {
     return this.request<Artifact[]>(`/tasks/${taskId}/artifacts`, { cache: "no-store" });
+  }
+
+  async listApprovals(taskId?: string): Promise<Approval[]> {
+    const path = taskId ? `/tasks/${taskId}/approvals` : "/approvals";
+
+    return this.request<Approval[]>(path, { cache: "no-store" });
+  }
+
+  async listAuditEvents(taskId?: string): Promise<AuditEvent[]> {
+    const path = taskId ? `/tasks/${taskId}/audit` : "/audit";
+
+    return this.request<AuditEvent[]>(path, { cache: "no-store" });
+  }
+
+  async listWorkspaces(): Promise<Workspace[]> {
+    return this.request<Workspace[]>("/workspaces", { cache: "no-store" });
+  }
+
+  async getTaskSource(taskId: string): Promise<TaskSource> {
+    return this.request<TaskSource>(`/tasks/${taskId}/source`, { cache: "no-store" });
   }
 
   streamUrl(taskId: string): string {

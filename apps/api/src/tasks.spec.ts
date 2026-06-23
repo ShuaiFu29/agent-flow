@@ -71,11 +71,57 @@ describe("tasks API", () => {
       .expect(200);
     expect(artifactsResponse.body.map((artifact: { kind: string }) => artifact.kind)).toEqual([
       "plan",
+      "workspace_summary",
       "patch",
       "review",
       "test_log",
       "final_report",
     ]);
+
+    const sourceResponse = await request(app.getHttpServer())
+      .get(`/tasks/${taskId}/source`)
+      .expect(200);
+    expect(sourceResponse.body).toMatchObject({
+      taskId,
+      kind: "manual",
+      title: createResponse.body.title,
+    });
+
+    const approvalsResponse = await request(app.getHttpServer())
+      .get(`/tasks/${taskId}/approvals`)
+      .expect(200);
+    expect(approvalsResponse.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          taskId,
+          kind: "apply_patch",
+          status: "pending",
+        }),
+        expect.objectContaining({
+          taskId,
+          kind: "run_command",
+          status: "approved",
+        }),
+      ]),
+    );
+
+    const auditResponse = await request(app.getHttpServer())
+      .get(`/tasks/${taskId}/audit`)
+      .expect(200);
+    expect(auditResponse.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          taskId,
+          action: "task_created",
+          source: "user",
+        }),
+        expect.objectContaining({
+          taskId,
+          action: "approval_requested",
+          source: "system",
+        }),
+      ]),
+    );
   });
 
   it("lists tasks and returns 404 for unknown task ids", async () => {
@@ -86,6 +132,22 @@ describe("tasks API", () => {
 
     const listResponse = await request(app.getHttpServer()).get("/tasks").expect(200);
     expect(listResponse.body).toHaveLength(1);
+
+    const workspaceResponse = await request(app.getHttpServer()).get("/workspaces").expect(200);
+    expect(workspaceResponse.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "demo-app",
+          status: "online",
+        }),
+      ]),
+    );
+
+    const approvalsResponse = await request(app.getHttpServer()).get("/approvals").expect(200);
+    expect(approvalsResponse.body.length).toBeGreaterThan(0);
+
+    const auditResponse = await request(app.getHttpServer()).get("/audit").expect(200);
+    expect(auditResponse.body.length).toBeGreaterThan(0);
 
     await request(app.getHttpServer()).get("/tasks/missing").expect(404);
   });
