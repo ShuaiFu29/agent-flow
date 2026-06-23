@@ -7,7 +7,13 @@ import {
   type AgentFlowEvent,
   type Approval,
   type Artifact,
+  type AuditEvent,
+  type CommandRun,
+  type ContextSnapshot,
+  type PreviewSession,
+  type TaskSource,
   type Task,
+  type Workspace,
   type RunnerCommand,
   type RunnerControlMessage,
   type RunnerLifecycleEvent,
@@ -123,5 +129,71 @@ describe("shared domain exports", () => {
     expect(registerMessage.capabilities).toContain("read_files");
     expect(heartbeatMessage.status).toBe("online");
     expect(lifecycleEvent.accepted).toBe(true);
+  });
+
+  it("supports final-product V0 skeleton domain shapes", () => {
+    const workspace: Workspace = {
+      id: "workspace_1",
+      name: "demo-app",
+      rootPath: "D:\\project\\demo-app",
+      status: "online",
+      runnerMode: "simulated",
+      lastHeartbeatAt: "2026-06-23T00:00:10.000Z",
+    };
+    const taskSource: TaskSource = {
+      id: "source_1",
+      taskId: "task_1",
+      kind: "manual",
+      title: "Add login flow",
+      content: "Add an email login flow.",
+      createdAt: "2026-06-23T00:00:00.000Z",
+    };
+    const contextSnapshot: ContextSnapshot = {
+      id: "snapshot_1",
+      taskId: "task_1",
+      selectedFiles: [
+        { path: "src/app/login/page.tsx", reason: "Login route", relevance: "high" },
+      ],
+      rejectedFiles: [
+        { path: ".env.local", reason: "Sensitive file" },
+      ],
+      createdAt: "2026-06-23T00:00:00.000Z",
+    };
+    const commandRun: CommandRun = {
+      id: "command_1",
+      taskId: "task_1",
+      command: "pnpm test",
+      status: "passed",
+      exitCode: 0,
+      startedAt: "2026-06-23T00:00:00.000Z",
+      completedAt: "2026-06-23T00:00:05.000Z",
+    };
+    const previewSession: PreviewSession = {
+      id: "preview_1",
+      taskId: "task_1",
+      workspaceId: "workspace_1",
+      status: "running",
+      url: "http://127.0.0.1:3001",
+      port: 3001,
+      command: "pnpm dev",
+      startedAt: "2026-06-23T00:00:00.000Z",
+    };
+    const auditEvent: AuditEvent = {
+      id: "audit_1",
+      taskId: "task_1",
+      source: "runner",
+      action: "command_completed",
+      message: "pnpm test passed",
+      createdAt: "2026-06-23T00:00:05.000Z",
+    };
+
+    expect(workspace.status).toBe("online");
+    expect(workspace.runnerMode).toBe("simulated");
+    expect(taskSource.kind).toBe("manual");
+    expect(contextSnapshot.selectedFiles[0]?.relevance).toBe("high");
+    expect(contextSnapshot.rejectedFiles[0]?.path).toBe(".env.local");
+    expect(commandRun.status).toBe("passed");
+    expect(previewSession.port).toBe(3001);
+    expect(auditEvent.source).toBe("runner");
   });
 });

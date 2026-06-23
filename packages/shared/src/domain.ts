@@ -34,6 +34,7 @@ export type Task = {
   id: string;
   title: string;
   prompt: string;
+  workspaceId?: string;
   status: TaskStatus;
   createdAt: string;
   updatedAt: string;
@@ -58,4 +59,93 @@ export type Approval = {
   payload: Record<string, unknown>;
   createdAt: string;
   decidedAt?: string;
+};
+
+export type WorkspaceStatus = "online" | "offline" | "indexing" | "error";
+
+export type RunnerMode = "simulated" | "local" | "remote";
+
+export type Workspace = {
+  id: string;
+  name: string;
+  rootPath: string;
+  status: WorkspaceStatus;
+  runnerMode: RunnerMode;
+  branch?: string;
+  lastHeartbeatAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type TaskSourceKind = "manual" | "github_issue" | "document" | "clipboard";
+
+export type TaskSource = {
+  id: string;
+  taskId: string;
+  kind: TaskSourceKind;
+  title: string;
+  content: string;
+  url?: string;
+  createdAt: string;
+};
+
+export type ContextRelevance = "high" | "medium" | "low";
+
+export type ContextSnapshotFile = {
+  path: string;
+  reason: string;
+  relevance: ContextRelevance;
+};
+
+export type RejectedContextFile = {
+  path: string;
+  reason: string;
+};
+
+export type ContextSnapshot = {
+  id: string;
+  taskId: string;
+  selectedFiles: ContextSnapshotFile[];
+  rejectedFiles: RejectedContextFile[];
+  createdAt: string;
+};
+
+export type CommandRunStatus = "queued" | "running" | "passed" | "failed" | "cancelled";
+
+export type CommandRun = {
+  id: string;
+  taskId: string;
+  command: string;
+  status: CommandRunStatus;
+  exitCode?: number;
+  startedAt?: string;
+  completedAt?: string;
+  outputArtifactId?: string;
+};
+
+export type PreviewSessionStatus = "starting" | "running" | "stopped" | "failed";
+
+export type PreviewSession = {
+  id: string;
+  taskId: string;
+  workspaceId: string;
+  status: PreviewSessionStatus;
+  url: string;
+  port: number;
+  command: string;
+  startedAt: string;
+  stoppedAt?: string;
+};
+
+export type AuditEventSource = "user" | "system" | "agent" | "runner";
+
+export type AuditEvent = {
+  id: string;
+  taskId?: string;
+  workspaceId?: string;
+  source: AuditEventSource;
+  action: string;
+  message: string;
+  createdAt: string;
+  metadata?: Record<string, unknown>;
 };
