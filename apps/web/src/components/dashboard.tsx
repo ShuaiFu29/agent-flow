@@ -379,14 +379,14 @@ function TaskInfo({
           <br />
           当前 V0 页面会通过 EventSource 订阅任务事件，并按事件 id 去重展示。
         </div>
-        <div style={{ height: 12 }} />
+        <div style={{ height: 8 }} />
         <div className="log">
-          {events.slice(-7).map((event) => (
+          {events.slice(-5).map((event) => (
             <div key={event.id}>[{event.type}] {event.message}</div>
           ))}
           {artifacts.length === 0 ? <div>[system] 等待产物生成</div> : null}
         </div>
-        <div style={{ height: 12 }} />
+        <div style={{ height: 8 }} />
         <a className="btn secondary" href={api.streamUrl(task.id)} rel="noreferrer" target="_blank">
           <ExternalLink size={14} /> 打开事件流
         </a>
