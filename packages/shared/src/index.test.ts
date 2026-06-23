@@ -9,6 +9,8 @@ import {
   type Artifact,
   type Task,
   type RunnerCommand,
+  type RunnerControlMessage,
+  type RunnerLifecycleEvent,
   type RunnerResult,
 } from "./index";
 
@@ -90,5 +92,36 @@ describe("shared domain exports", () => {
     expect(result.exitCode).toBe(0);
     expect(artifact.kind).toBe("plan");
     expect(approval.status).toBe("pending");
+  });
+
+  it("supports runner registration and heartbeat protocol shapes", () => {
+    const registerMessage: RunnerControlMessage = {
+      type: "runner_register",
+      runnerId: "runner_1",
+      workspaceRoot: "D:\\project\\demo",
+      protocolVersion: "v0",
+      capabilities: ["scan_workspace", "read_files", "run_command"],
+      createdAt: "2026-06-23T00:00:00.000Z",
+    };
+    const heartbeatMessage: RunnerControlMessage = {
+      type: "runner_heartbeat",
+      runnerId: "runner_1",
+      workspaceRoot: "D:\\project\\demo",
+      status: "online",
+      sentAt: "2026-06-23T00:00:05.000Z",
+    };
+    const lifecycleEvent: RunnerLifecycleEvent = {
+      type: "runner_registered",
+      runnerId: "runner_1",
+      workspaceRoot: "D:\\project\\demo",
+      accepted: true,
+      message: "Runner accepted.",
+      createdAt: "2026-06-23T00:00:00.000Z",
+    };
+
+    expect(registerMessage.protocolVersion).toBe("v0");
+    expect(registerMessage.capabilities).toContain("read_files");
+    expect(heartbeatMessage.status).toBe("online");
+    expect(lifecycleEvent.accepted).toBe(true);
   });
 });

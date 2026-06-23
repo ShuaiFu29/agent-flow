@@ -7,9 +7,61 @@ export const RUNNER_ALLOWED_COMMANDS = [
 
 export type RunnerAllowedCommand = (typeof RUNNER_ALLOWED_COMMANDS)[number];
 
+export type RunnerProtocolVersion = "v0";
+
+export type RunnerCapability =
+  | "scan_workspace"
+  | "read_files"
+  | "apply_patch"
+  | "run_command";
+
+export type RunnerStatus = "online" | "offline" | "busy";
+
 export function isRunnerCommandAllowed(command: string): command is RunnerAllowedCommand {
   return RUNNER_ALLOWED_COMMANDS.includes(command as RunnerAllowedCommand);
 }
+
+export type RunnerControlMessage =
+  | {
+      type: "runner_register";
+      runnerId: string;
+      workspaceRoot: string;
+      protocolVersion: RunnerProtocolVersion;
+      capabilities: RunnerCapability[];
+      createdAt: string;
+    }
+  | {
+      type: "runner_heartbeat";
+      runnerId: string;
+      workspaceRoot: string;
+      status: RunnerStatus;
+      sentAt: string;
+    };
+
+export type RunnerLifecycleEvent =
+  | {
+      type: "runner_registered";
+      runnerId: string;
+      workspaceRoot: string;
+      accepted: true;
+      message: string;
+      createdAt: string;
+    }
+  | {
+      type: "runner_rejected";
+      runnerId: string;
+      workspaceRoot: string;
+      accepted: false;
+      message: string;
+      createdAt: string;
+    }
+  | {
+      type: "runner_disconnected";
+      runnerId: string;
+      workspaceRoot: string;
+      message: string;
+      createdAt: string;
+    };
 
 export type RunnerCommand =
   | { type: "scan_workspace"; commandId: string; taskId: string }
