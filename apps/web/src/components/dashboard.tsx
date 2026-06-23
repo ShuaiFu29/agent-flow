@@ -2,7 +2,6 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
-  CheckCircle2,
   ExternalLink,
   FolderGit2,
   ListTodo,
@@ -244,9 +243,14 @@ export function Dashboard() {
     () => tasks.find((task) => task.id === selectedTaskId) ?? null,
     [selectedTaskId, tasks],
   );
+  const displayTasks = tasks.length > 0 ? tasks : [demoTask];
+  const displayEvents = events.length > 0 ? events : demoEvents;
+  const displayArtifacts = artifacts.length > 0 ? artifacts : demoArtifacts;
+  const displaySelectedTask = selectedTask ?? displayTasks[0] ?? null;
+  const displaySelectedTaskId = selectedTaskId ?? displaySelectedTask?.id ?? null;
   const selectedArtifact = useMemo(
-    () => artifacts.find((artifact) => artifact.id === selectedArtifactId) ?? artifacts[0] ?? null,
-    [artifacts, selectedArtifactId],
+    () => displayArtifacts.find((artifact) => artifact.id === selectedArtifactId) ?? displayArtifacts[0] ?? null,
+    [displayArtifacts, selectedArtifactId],
   );
 
   async function handleCreateTask(event: FormEvent<HTMLFormElement>) {
@@ -272,7 +276,7 @@ export function Dashboard() {
     }
   }
 
-  const completedEvents = events.filter((event) => event.type === "agent_completed").length;
+  const completedEvents = displayEvents.filter((event) => event.type === "agent_completed").length;
   const currentViewCopy = viewCopy[activeView];
 
   return (
@@ -337,7 +341,7 @@ export function Dashboard() {
       case "artifacts":
         return (
           <ArtifactsView
-            artifacts={artifacts.length > 0 ? artifacts : demoArtifacts}
+            artifacts={displayArtifacts}
             commandRuns={demoCommandRuns}
             previewSession={demoPreviewSession}
             source={demoTaskSource}
@@ -346,7 +350,7 @@ export function Dashboard() {
       case "approvals":
         return <ApprovalsView approvals={demoApprovals} />;
       case "audit":
-        return <AuditView auditEvents={demoAuditEvents} events={events.length > 0 ? events : demoEvents} />;
+        return <AuditView auditEvents={demoAuditEvents} events={displayEvents} />;
       case "settings":
         return <SettingsView />;
       case "tasks":
@@ -354,10 +358,10 @@ export function Dashboard() {
         return (
           <TasksView
             api={api}
-            artifacts={artifacts}
+            artifacts={displayArtifacts}
             completedEvents={completedEvents}
             disabled={loadState === "loading"}
-            events={events}
+            events={displayEvents}
             formPrompt={formPrompt}
             formTitle={formTitle}
             onArtifactSelect={setSelectedArtifactId}
@@ -367,9 +371,9 @@ export function Dashboard() {
             onTitleChange={setFormTitle}
             selectedArtifact={selectedArtifact}
             selectedArtifactId={selectedArtifactId}
-            selectedTask={selectedTask}
-            selectedTaskId={selectedTaskId}
-            tasks={tasks}
+            selectedTask={displaySelectedTask}
+            selectedTaskId={displaySelectedTaskId}
+            tasks={displayTasks}
           />
         );
     }
@@ -460,36 +464,50 @@ function WorkspaceView({
   workspace: Workspace;
 }) {
   return (
-    <div className="view-grid two-col">
+    <div className="view-grid three-col">
       <section className="panel" data-testid="workspace-summary">
         <div className="panel-head">
-          <h3>已连接项目</h3>
-          <span className="badge green">{workspace.status}</span>
+          <h3>最近工作区</h3>
+          <span className="badge green">1 在线</span>
         </div>
-        <div className="panel-body detail-list">
-          <DetailItem label="名称" value={workspace.name} />
-          <DetailItem label="路径" value={workspace.rootPath} />
-          <DetailItem label="分支" value={workspace.branch ?? "未读取"} />
-          <DetailItem label="Runner" value={`${workspace.runnerMode} · ${workspace.lastHeartbeatAt ?? "无心跳"}`} />
+        <div className="panel-body mini-list">
+          <div className="list-row selected">
+            <span>{workspace.name}</span>
+            <small>{workspace.rootPath} · 最近心跳 12 秒前</small>
+          </div>
+          <div className="list-row">
+            <span>admin-dashboard</span>
+            <small>未连接 · 上次使用昨天 22:10</small>
+          </div>
+          <div className="list-row">
+            <span>mobile-api</span>
+            <small>未连接 · Node / NestJS 项目</small>
+          </div>
         </div>
       </section>
 
       <section className="panel">
         <div className="panel-head">
-          <h3>效果预览</h3>
-          <span className="badge blue">{previewSession.status}</span>
+          <h3>当前能力</h3>
+          <span className="badge blue">骨架版</span>
+        </div>
+        <div className="panel-body policy-grid">
+          <div className="policy"><strong>可创建任务</strong><p>需求会绑定到当前工作区。</p></div>
+          <div className="policy"><strong>可展示产物</strong><p>计划、补丁、审查、测试报告。</p></div>
+          <div className="policy"><strong>模拟 Runner</strong><p>V0 不执行真实命令。</p></div>
+          <div className="policy"><strong>安全边界</strong><p>本地操作留到 V2。</p></div>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-head">
+          <h3>下一步</h3>
+          <span className="badge amber">需要选择</span>
         </div>
         <div className="panel-body">
-          <div className="preview-tile">
-            <MonitorUp size={20} />
-            <div>
-              <strong>{previewSession.url}</strong>
-              <span>{previewSession.command} · port {previewSession.port}</span>
-            </div>
-            <button className="btn secondary" type="button">
-              <PlayCircle size={14} /> 全屏预览
-            </button>
-          </div>
+          <div className="notice">选择工作区后，用户可以输入开发需求、Bug 描述或错误日志，让 Agent 基于该工作区生成计划和补丁。</div>
+          <div style={{ height: 12 }} />
+          <button className="btn" type="button">基于 demo-app 新建任务</button>
         </div>
       </section>
 
@@ -516,6 +534,25 @@ function WorkspaceView({
                 <small>{file.reason}</small>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-head">
+          <h3>效果预览</h3>
+          <span className="badge green">{previewSession.status}</span>
+        </div>
+        <div className="panel-body">
+          <div className="preview-tile">
+            <MonitorUp size={20} />
+            <div>
+              <strong>{previewSession.url}</strong>
+              <span>{previewSession.command} · port {previewSession.port}</span>
+            </div>
+            <button className="btn secondary" type="button">
+              <PlayCircle size={14} /> 全屏预览
+            </button>
           </div>
         </div>
       </section>
@@ -596,10 +633,10 @@ function ArtifactsView({
 
 function ApprovalsView({ approvals }: { approvals: Approval[] }) {
   return (
-    <div className="view-grid two-col">
+    <div className="view-grid three-col">
       <section className="panel" data-testid="approval-summary">
         <div className="panel-head">
-          <h3>待处理审批</h3>
+          <h3>审批队列</h3>
           <span className="badge amber">{approvals.filter((approval) => approval.status === "pending").length} 待处理</span>
         </div>
         <div className="panel-body approval-list">
@@ -615,10 +652,25 @@ function ApprovalsView({ approvals }: { approvals: Approval[] }) {
           ))}
         </div>
       </section>
+
       <section className="panel">
         <div className="panel-head">
-          <h3>审批原则</h3>
-          <span className="badge blue">V0</span>
+          <h3>patch 摘要</h3>
+          <span className="badge blue">apply_patch</span>
+        </div>
+        <div className="artifact-content compact-code">
+          <h3>login/page.tsx</h3>
+          <pre>{`diff --git a/src/app/login/page.tsx b/src/app/login/page.tsx
++ export default function LoginPage() {
++   return <LoginForm />;
++ }`}</pre>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-head">
+          <h3>风险和操作</h3>
+          <span className="badge amber">人工确认</span>
         </div>
         <div className="panel-body mini-list">
           <div className="list-row">
@@ -628,6 +680,10 @@ function ApprovalsView({ approvals }: { approvals: Approval[] }) {
           <div className="list-row">
             <span>运行命令必须经过白名单或用户确认</span>
             <small>降低误执行高风险命令的概率。</small>
+          </div>
+          <div className="action-row">
+            <button className="btn secondary" type="button">拒绝</button>
+            <button className="btn" type="button">批准 patch</button>
           </div>
         </div>
       </section>

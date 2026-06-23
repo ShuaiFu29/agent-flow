@@ -62,17 +62,17 @@ button {
 .app-shell {
   height: 100vh;
   display: grid;
-  grid-template-columns: 188px minmax(0, 1fr);
+  grid-template-columns: 220px minmax(0, 1fr);
   overflow: hidden;
 }
 
 .sidebar {
   background: var(--surface);
   border-right: 1px solid var(--border);
-  padding: 14px 12px;
+  padding: 18px 14px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 18px;
   min-height: 0;
 }
 
@@ -98,8 +98,8 @@ button {
 }
 
 .logo {
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   border-radius: 8px;
   background: var(--text);
   display: grid;
@@ -108,8 +108,8 @@ button {
 }
 
 .logo svg {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
 }
 
 .nav {
@@ -118,7 +118,7 @@ button {
 }
 
 .nav-item {
-  height: 34px;
+  height: 36px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -172,8 +172,8 @@ button {
 }
 
 .topbar {
-  min-height: 52px;
-  padding: 6px 18px;
+  min-height: 64px;
+  padding: 10px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -185,7 +185,7 @@ button {
 .topbar h1,
 .topbar h2 {
   margin: 0;
-  font-size: 17px;
+  font-size: 18px;
   line-height: 1.25;
 }
 
@@ -208,23 +208,23 @@ button {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  padding: 10px 16px 10px;
+  padding: 14px 20px 18px;
   display: grid;
-  gap: 10px;
+  gap: 14px;
   align-content: start;
 }
 
 .grid-overview {
   display: grid;
-  grid-template-columns: minmax(340px, 1.3fr) 280px 260px;
-  gap: 10px;
+  grid-template-columns: minmax(360px, 1.35fr) minmax(280px, 0.8fr) minmax(280px, 0.8fr);
+  gap: 14px;
   align-items: start;
 }
 
 .grid-detail {
   display: grid;
-  grid-template-columns: 246px minmax(340px, 1fr) 280px;
-  gap: 10px;
+  grid-template-columns: 280px minmax(360px, 1fr) 300px;
+  gap: 14px;
   align-items: start;
 }
 
@@ -252,7 +252,7 @@ button {
 }
 
 .panel-body {
-  padding: 9px;
+  padding: 12px;
 }
 
 .btn {
@@ -326,7 +326,7 @@ button {
 .event-list,
 .step-list {
   display: grid;
-  gap: 6px;
+  gap: 8px;
 }
 
 .task-row,
@@ -336,7 +336,7 @@ button {
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
   background: var(--soft);
-  padding: 7px;
+  padding: 10px;
 }
 
 .task-row {
@@ -376,11 +376,11 @@ button {
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
+  gap: 8px;
 }
 
 .metric {
-  padding: 8px;
+  padding: 12px;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
   background: var(--soft);
@@ -401,12 +401,12 @@ button {
 
 .form {
   display: grid;
-  gap: 6px;
+  gap: 10px;
 }
 
 .field {
   display: grid;
-  gap: 5px;
+  gap: 7px;
 }
 
 .field > span {
@@ -426,21 +426,21 @@ button {
 }
 
 .textarea {
-  min-height: 52px;
+  min-height: 72px;
   resize: none;
   line-height: 1.45;
 }
 
 .step {
   display: grid;
-  grid-template-columns: 23px 1fr;
-  gap: 7px;
+  grid-template-columns: 28px 1fr;
+  gap: 9px;
   background: #fff;
 }
 
 .step-icon {
-  width: 23px;
-  height: 23px;
+  width: 28px;
+  height: 28px;
   border-radius: 7px;
   display: grid;
   place-items: center;
@@ -503,6 +503,10 @@ button {
   padding: 10px;
 }
 
+.artifact-content.compact-code {
+  padding: 12px;
+}
+
 .artifact-content h3 {
   margin: 0 0 8px;
   font-size: 16px;
@@ -525,6 +529,10 @@ button {
 .artifact-content pre {
   padding: 10px;
   white-space: pre-wrap;
+}
+
+.compact-code pre {
+  max-height: 190px;
 }
 
 .log div {
@@ -552,16 +560,16 @@ button {
 
 .view-grid {
   display: grid;
-  gap: 10px;
+  gap: 14px;
   align-items: start;
 }
 
 .view-grid.two-col {
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.8fr);
+  grid-template-columns: minmax(0, 1fr) 320px;
 }
 
 .view-grid.three-col {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(280px, 0.75fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 300px;
 }
 
 .span-2 {
@@ -572,14 +580,21 @@ button {
 .mini-list,
 .approval-list {
   display: grid;
-  gap: 8px;
+  gap: 10px;
+}
+
+.policy-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .detail-item,
 .list-row,
 .approval-row,
 .artifact-row,
-.preview-tile {
+.preview-tile,
+.policy {
   min-width: 0;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
@@ -587,7 +602,17 @@ button {
   padding: 8px;
 }
 
+.list-row.selected {
+  border-color: #c6ead8;
+  background: var(--green-soft);
+}
+
 .detail-item {
+  display: grid;
+  gap: 3px;
+}
+
+.list-row {
   display: grid;
   gap: 3px;
 }
@@ -608,7 +633,8 @@ button {
 .list-row span,
 .artifact-row strong,
 .preview-tile strong,
-.mini-list > strong {
+.mini-list > strong,
+.policy strong {
   min-width: 0;
   color: var(--text);
   font-size: 13px;
@@ -617,15 +643,22 @@ button {
   word-break: break-word;
 }
 
+.policy p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .context-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 14px;
 }
 
 .preview-tile {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
+  grid-template-columns: 24px minmax(0, 1fr);
   align-items: center;
   gap: 9px;
 }
@@ -638,6 +671,10 @@ button {
   min-width: 0;
   display: grid;
   gap: 2px;
+}
+
+.preview-tile .btn {
+  grid-column: 1 / -1;
 }
 
 .artifact-row {
@@ -683,6 +720,12 @@ button {
   word-break: break-word;
 }
 
+.action-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
 .event-row {
   display: grid;
   gap: 3px;
@@ -724,7 +767,8 @@ button {
   .grid-detail,
   .view-grid.two-col,
   .view-grid.three-col,
-  .context-grid {
+  .context-grid,
+  .policy-grid {
     grid-template-columns: 1fr;
   }
 
