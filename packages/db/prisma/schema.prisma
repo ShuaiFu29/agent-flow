@@ -1,0 +1,65 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Task {
+  id        String     @id @default(cuid())
+  title     String
+  prompt    String
+  status    String
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  events    Event[]
+  artifacts Artifact[]
+  approvals Approval[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Event {
+  id        String   @id @default(cuid())
+  taskId    String
+  type      String
+  agentRole String?
+  message   String
+  payload   Json?
+  createdAt DateTime @default(now())
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
+  @@index([type])
+}
+
+model Artifact {
+  id        String   @id @default(cuid())
+  taskId    String
+  kind      String
+  title     String
+  content   String
+  metadata  Json?
+  createdAt DateTime @default(now())
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, kind])
+  @@index([createdAt])
+}
+
+model Approval {
+  id        String    @id @default(cuid())
+  taskId    String
+  kind      String
+  status    String
+  payload   Json
+  createdAt DateTime  @default(now())
+  decidedAt DateTime?
+  task      Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, status])
+  @@index([createdAt])
+}

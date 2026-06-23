@@ -1,0 +1,25 @@
+{
+  "name": "@agent-flow/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "db:generate": "cross-env DATABASE_URL=postgresql://agent_flow:agent_flow@localhost:5432/agent_flow prisma generate --schema prisma/schema.prisma",
+    "db:validate": "cross-env DATABASE_URL=postgresql://agent_flow:agent_flow@localhost:5432/agent_flow prisma validate --schema prisma/schema.prisma",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.0"
+  },
+  "devDependencies": {
+    "cross-env": "^10.1.0",
+    "prisma": "^6.19.0",
+    "vitest": "^3.2.0"
+  }
+}
