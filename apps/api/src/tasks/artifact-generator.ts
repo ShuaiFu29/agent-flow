@@ -110,6 +110,13 @@ export class ArtifactGenerator {
 function pickFocusFiles(context: WorkspaceContext): string[] {
   const uniqueFiles = new Set<string>();
 
+  for (const file of context.selectedFiles) {
+    uniqueFiles.add(file.path);
+    if (uniqueFiles.size >= 3) {
+      break;
+    }
+  }
+
   for (const file of context.keyFiles) {
     uniqueFiles.add(file.path);
     if (uniqueFiles.size >= 3) {

@@ -5,6 +5,7 @@ export const demoTask: Task = {
   title: "增加邮箱登录流程",
   prompt: "在现有项目中增加登录页面，支持邮箱和密码登录。",
   status: "waiting_for_approval",
+  stage: "patch_approval",
   createdAt: "2026-06-23T00:00:00.000Z",
   updatedAt: "2026-06-23T00:00:00.000Z",
 };
@@ -66,3 +67,4 @@ function artifact(kind: Artifact["kind"], title: string, content: string): Artif
     createdAt: "2026-06-23T00:00:00.000Z",
   };
 }
+

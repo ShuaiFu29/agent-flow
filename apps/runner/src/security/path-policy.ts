@@ -16,6 +16,19 @@ const SENSITIVE_FILE_NAMES = new Set([
   ".env.production",
 ]);
 const SENSITIVE_EXTENSIONS = new Set([".pem", ".key", ".p12", ".pfx"]);
+const DIFF_PATH_PATTERN = /^(?:diff --git a\/(.+?) b\/(.+)|--- a\/(.+)|\+\+\+ b\/(.+))$/;
+
+export type PatchPathPolicyResult =
+  | {
+      allowed: true;
+      changedFiles: string[];
+    }
+  | {
+      allowed: false;
+      changedFiles: string[];
+      reason: string;
+      path?: string;
+    };
 
 export function evaluateWorkspacePath(
   workspaceRoot: string,
@@ -50,6 +63,40 @@ export function evaluateWorkspacePath(
   }
 
   return { allowed: true, absolutePath, relativePath };
+}
+
+export function inspectPatchPaths(workspaceRoot: string, patch: string): PatchPathPolicyResult {
+  const changedFiles = new Set<string>();
+
+  for (const line of patch.split(/\r?\n/)) {
+    const match = line.match(DIFF_PATH_PATTERN);
+    if (!match) {
+      continue;
+    }
+
+    const candidates = [match[2], match[4], match[1], match[3]].filter(
+      (value): value is string => Boolean(value && value !== "/dev/null"),
+    );
+
+    for (const candidate of candidates) {
+      const evaluation = evaluateWorkspacePath(workspaceRoot, candidate);
+      if (!evaluation.allowed) {
+        return {
+          allowed: false,
+          changedFiles: Array.from(changedFiles),
+          reason: evaluation.reason,
+          path: candidate,
+        };
+      }
+
+      changedFiles.add(evaluation.relativePath);
+    }
+  }
+
+  return {
+    allowed: true,
+    changedFiles: Array.from(changedFiles),
+  };
 }
 
 function normalizeRelativePath(relativePath: string): string {

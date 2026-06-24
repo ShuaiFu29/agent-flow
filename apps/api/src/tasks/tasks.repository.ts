@@ -5,6 +5,9 @@ import type {
   Approval,
   Artifact,
   AuditEvent,
+  CommandRun,
+  ContextSnapshot,
+  PatchLifecycle,
   RunnerCapability,
   RunnerProtocolVersion,
   RunnerSession,
@@ -54,6 +57,12 @@ export interface TasksRepository {
   listAuditEvents(taskId?: string): MaybePromise<AuditEvent[]>;
   setTaskSource(source: TaskSource): MaybePromise<TaskSource>;
   getTaskSource(taskId: string): MaybePromise<TaskSource | undefined>;
+  setContextSnapshot(snapshot: ContextSnapshot): MaybePromise<ContextSnapshot>;
+  getContextSnapshot(taskId: string): MaybePromise<ContextSnapshot | undefined>;
+  setPatchLifecycle(lifecycle: PatchLifecycle): MaybePromise<PatchLifecycle>;
+  getPatchLifecycle(taskId: string): MaybePromise<PatchLifecycle | undefined>;
+  setCommandRun(commandRun: CommandRun): MaybePromise<CommandRun>;
+  listCommandRuns(taskId: string): MaybePromise<CommandRun[]>;
   registerRunner(input: RegisterRunnerInput): MaybePromise<{ workspace: Workspace; session: RunnerSession }>;
   heartbeatRunner(input: HeartbeatRunnerInput): MaybePromise<{ workspace: Workspace; session: RunnerSession } | undefined>;
   listWorkspaces(): MaybePromise<Workspace[]>;
@@ -68,6 +77,9 @@ export class InMemoryTasksRepository implements TasksRepository {
   private readonly artifacts = new Map<string, Artifact[]>();
   private readonly approvals = new Map<string, Approval[]>();
   private readonly taskSources = new Map<string, TaskSource>();
+  private readonly contextSnapshots = new Map<string, ContextSnapshot>();
+  private readonly patchLifecycles = new Map<string, PatchLifecycle>();
+  private readonly commandRuns = new Map<string, CommandRun[]>();
   private readonly auditEvents: AuditEvent[] = [];
   private readonly workspaces = new Map<string, Workspace>();
   private readonly runnerSessions = new Map<string, RunnerSession>();
@@ -77,6 +89,7 @@ export class InMemoryTasksRepository implements TasksRepository {
     this.events.set(task.id, []);
     this.artifacts.set(task.id, []);
     this.approvals.set(task.id, []);
+    this.commandRuns.set(task.id, []);
 
     return task;
   }
@@ -179,6 +192,45 @@ export class InMemoryTasksRepository implements TasksRepository {
 
   getTaskSource(taskId: string): TaskSource | undefined {
     return this.taskSources.get(taskId);
+  }
+
+  setContextSnapshot(snapshot: ContextSnapshot): ContextSnapshot {
+    this.contextSnapshots.set(snapshot.taskId, snapshot);
+
+    return snapshot;
+  }
+
+  getContextSnapshot(taskId: string): ContextSnapshot | undefined {
+    return this.contextSnapshots.get(taskId);
+  }
+
+  setPatchLifecycle(lifecycle: PatchLifecycle): PatchLifecycle {
+    this.patchLifecycles.set(lifecycle.taskId, lifecycle);
+
+    return lifecycle;
+  }
+
+  getPatchLifecycle(taskId: string): PatchLifecycle | undefined {
+    return this.patchLifecycles.get(taskId);
+  }
+
+  setCommandRun(commandRun: CommandRun): CommandRun {
+    const commandRuns = this.commandRuns.get(commandRun.taskId) ?? [];
+    const index = commandRuns.findIndex((currentRun) => currentRun.id === commandRun.id);
+
+    if (index >= 0) {
+      commandRuns[index] = commandRun;
+    } else {
+      commandRuns.push(commandRun);
+    }
+
+    this.commandRuns.set(commandRun.taskId, commandRuns);
+
+    return commandRun;
+  }
+
+  listCommandRuns(taskId: string): CommandRun[] {
+    return this.commandRuns.get(taskId) ?? [];
   }
 
   registerRunner(input: RegisterRunnerInput): { workspace: Workspace; session: RunnerSession } {

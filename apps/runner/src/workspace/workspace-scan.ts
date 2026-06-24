@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import type { Dirent } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -21,6 +22,15 @@ const KEY_FILE_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /(^|\/)app(\/.+)?\/page\.(t|j)sx?$/i, reason: "App route entry" },
   { pattern: /(^|\/)src\/.+\/index\.(t|j)sx?$/i, reason: "Module entry" },
 ];
+const PRIORITY_DIRECTORY_NAMES = new Set(["app", "apps", "packages", "src"]);
+const DEPRIORITIZED_DIRECTORY_NAMES = new Set([
+  ".logs",
+  ".next",
+  ".turbo",
+  "coverage",
+  "dist",
+  "test-results",
+]);
 
 export async function scanWorkspace(input: RunnerScanRequest): Promise<RunnerScanResponse> {
   const workspaceRoot = path.resolve(input.workspaceRoot);
@@ -93,7 +103,9 @@ async function walkDirectory(input: {
     return;
   }
 
-  const entries = await fs.readdir(input.currentPath, { withFileTypes: true });
+  const entries = sortTraversalEntries(
+    await fs.readdir(input.currentPath, { withFileTypes: true }),
+  );
 
   for (const entry of entries) {
     if (input.collectedFiles.length >= input.maxEntries) {
@@ -119,6 +131,38 @@ async function walkDirectory(input: {
 
     input.collectedFiles.push(evaluation.relativePath);
   }
+}
+
+function sortTraversalEntries(entries: Dirent[]): Dirent[] {
+  return [...entries].sort((left, right) => {
+    const priorityDifference = getEntryPriority(left) - getEntryPriority(right);
+
+    if (priorityDifference !== 0) {
+      return priorityDifference;
+    }
+
+    return left.name.localeCompare(right.name);
+  });
+}
+
+function getEntryPriority(entry: Dirent): number {
+  if (entry.isFile() && KEY_FILE_PATTERNS.some(({ pattern }) => pattern.test(entry.name))) {
+    return 0;
+  }
+
+  if (entry.isDirectory() && PRIORITY_DIRECTORY_NAMES.has(entry.name.toLowerCase())) {
+    return 1;
+  }
+
+  if (entry.isFile()) {
+    return 2;
+  }
+
+  if (entry.isDirectory() && DEPRIORITIZED_DIRECTORY_NAMES.has(entry.name.toLowerCase())) {
+    return 4;
+  }
+
+  return 3;
 }
 
 async function buildKeyFiles(

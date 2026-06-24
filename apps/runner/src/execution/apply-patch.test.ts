@@ -4,7 +4,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
-import { applyWorkspacePatch } from "./apply-patch";
+import { applyWorkspacePatch, precheckWorkspacePatch } from "./apply-patch";
 
 const execFileAsync = promisify(execFile);
 
@@ -41,7 +41,7 @@ describe("applyWorkspacePatch", () => {
     await expect(fs.readFile(path.join(workspaceRoot, "src/example.ts"), "utf8")).resolves.toContain("value = 2");
   });
 
-  it("rejects patch targets outside the workspace boundary", async () => {
+  it("returns a structured failure when apply sees a path outside the workspace boundary", async () => {
     const workspaceRoot = await createWorkspace({
       "src/example.ts": "export const value = 1;\n",
     });
@@ -56,12 +56,71 @@ describe("applyWorkspacePatch", () => {
       "",
     ].join("\n");
 
-    await expect(
-      applyWorkspacePatch({
-        workspaceRoot,
-        patch,
-      }),
-    ).rejects.toThrow(/outside the workspace|Path resolves outside/i);
+    const result = await applyWorkspacePatch({
+      workspaceRoot,
+      patch,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      failureCode: "path_not_allowed",
+    });
+    expect(result.issues[0]?.message).toMatch(/outside the workspace|Path resolves outside/i);
+  });
+
+  it("prechecks a valid patch without mutating the workspace", async () => {
+    const workspaceRoot = await createWorkspace({
+      "src/example.ts": "export const value = 1;\n",
+    });
+    await initGitWorkspace(workspaceRoot);
+
+    const patch = [
+      "diff --git a/src/example.ts b/src/example.ts",
+      "--- a/src/example.ts",
+      "+++ b/src/example.ts",
+      "@@ -1 +1 @@",
+      "-export const value = 1;",
+      "+export const value = 2;",
+      "",
+    ].join("\n");
+
+    const result = await precheckWorkspacePatch({
+      workspaceRoot,
+      patch,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      changedFiles: ["src/example.ts"],
+    });
+    await expect(fs.readFile(path.join(workspaceRoot, "src/example.ts"), "utf8")).resolves.toContain("value = 1");
+  });
+
+  it("returns a structured failure code when precheck sees a path outside the workspace", async () => {
+    const workspaceRoot = await createWorkspace({
+      "src/example.ts": "export const value = 1;\n",
+    });
+    await initGitWorkspace(workspaceRoot);
+
+    const patch = [
+      "diff --git a/../outside.txt b/../outside.txt",
+      "--- a/../outside.txt",
+      "+++ b/../outside.txt",
+      "@@ -0,0 +1 @@",
+      "+nope",
+      "",
+    ].join("\n");
+
+    const result = await precheckWorkspacePatch({
+      workspaceRoot,
+      patch,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      failureCode: "path_not_allowed",
+    });
+    expect(result.issues[0]?.message).toMatch(/outside the workspace|Path resolves outside/i);
   });
 
   async function createWorkspace(files: Record<string, string>): Promise<string> {

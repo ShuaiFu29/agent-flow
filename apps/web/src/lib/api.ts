@@ -1,4 +1,15 @@
-import type { AgentFlowEvent, Approval, Artifact, AuditEvent, Task, TaskSource, Workspace } from "@agent-flow/shared";
+import type {
+  AgentFlowEvent,
+  Approval,
+  Artifact,
+  AuditEvent,
+  CommandRun,
+  ContextSnapshot,
+  PatchLifecycle,
+  Task,
+  TaskSource,
+  Workspace,
+} from "@agent-flow/shared";
 
 type CreateTaskInput = {
   title: string;
@@ -62,6 +73,18 @@ export class AgentFlowApiClient {
 
   async getTaskSource(taskId: string): Promise<TaskSource> {
     return this.request<TaskSource>(`/tasks/${taskId}/source`, { cache: "no-store" });
+  }
+
+  async getTaskContext(taskId: string): Promise<ContextSnapshot> {
+    return this.request<ContextSnapshot>(`/tasks/${taskId}/context`, { cache: "no-store" });
+  }
+
+  async getPatchLifecycle(taskId: string): Promise<PatchLifecycle> {
+    return this.request<PatchLifecycle>(`/tasks/${taskId}/patch-lifecycle`, { cache: "no-store" });
+  }
+
+  async getCommandRuns(taskId: string): Promise<CommandRun[]> {
+    return this.request<CommandRun[]>(`/tasks/${taskId}/command-runs`, { cache: "no-store" });
   }
 
   streamUrl(taskId: string): string {

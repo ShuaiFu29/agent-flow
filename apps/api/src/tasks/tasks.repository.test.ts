@@ -52,6 +52,37 @@ describe("InMemoryTasksRepository", () => {
       content: "Implement V0 closure.",
       createdAt: "2026-06-24T00:00:00.000Z",
     };
+    const patchLifecycle = {
+      id: "patch_1",
+      taskId: task.id,
+      patchArtifactId: artifact.id,
+      approvalId: approval.id,
+      status: "awaiting_approval" as const,
+      precheck: {
+        status: "passed" as const,
+        changedFiles: ["apps/api/src/tasks/tasks.service.ts"],
+        message: "Patch precheck passed.",
+        issues: [],
+        checkedAt: "2026-06-24T00:00:00.500Z",
+      },
+      createdAt: "2026-06-24T00:00:00.000Z",
+      updatedAt: "2026-06-24T00:00:01.000Z",
+    };
+    const commandRun = {
+      id: "command_1",
+      taskId: task.id,
+      approvalId: approval.id,
+      command: "pnpm test",
+      status: "passed" as const,
+      exitCode: 0,
+      stdout: "task test ok\n",
+      stderr: "",
+      createdAt: "2026-06-24T00:00:02.500Z",
+      updatedAt: "2026-06-24T00:00:06.000Z",
+      startedAt: "2026-06-24T00:00:03.000Z",
+      completedAt: "2026-06-24T00:00:06.000Z",
+      outputArtifactId: artifact.id,
+    };
 
     repository.createTask(task);
     repository.addEvent(event);
@@ -59,6 +90,8 @@ describe("InMemoryTasksRepository", () => {
     repository.addApproval(approval);
     repository.addAuditEvent(auditEvent);
     repository.setTaskSource(taskSource);
+    repository.setPatchLifecycle(patchLifecycle);
+    repository.setCommandRun(commandRun);
     repository.updateTask({
       ...task,
       status: "completed",
@@ -96,9 +129,11 @@ describe("InMemoryTasksRepository", () => {
     expect(repository.listAuditEvents()).toEqual([auditEvent]);
     expect(repository.listAuditEvents(task.id)).toEqual([auditEvent]);
     expect(repository.getTaskSource(task.id)).toEqual(taskSource);
+    expect(repository.getPatchLifecycle(task.id)).toEqual(patchLifecycle);
+    expect(repository.listCommandRuns(task.id)).toEqual([commandRun]);
   });
 
-  it("returns empty event, artifact, approval, and audit collections for known tasks without records", () => {
+  it("returns empty event, artifact, approval, audit, and command-run collections for known tasks without records", () => {
     const repository = new InMemoryTasksRepository();
 
     repository.createTask({
@@ -115,6 +150,8 @@ describe("InMemoryTasksRepository", () => {
     expect(repository.listApprovals("task_empty")).toEqual([]);
     expect(repository.listAuditEvents("task_empty")).toEqual([]);
     expect(repository.getTaskSource("task_empty")).toBeUndefined();
+    expect(repository.getPatchLifecycle("task_empty")).toBeUndefined();
+    expect(repository.listCommandRuns("task_empty")).toEqual([]);
   });
 
   it("starts with no registered workspaces or runner sessions", () => {

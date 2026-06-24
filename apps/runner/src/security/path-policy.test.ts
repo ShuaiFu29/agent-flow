@@ -1,6 +1,6 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { evaluateWorkspacePath } from "./path-policy";
+import { evaluateWorkspacePath, inspectPatchPaths } from "./path-policy";
 
 describe("runner path policy", () => {
   const workspaceRoot = path.resolve("D:/project/demo");
@@ -33,6 +33,23 @@ describe("runner path policy", () => {
     });
     expect(evaluateWorkspacePath(workspaceRoot, "certs/private.pem")).toMatchObject({
       allowed: false,
+    });
+  });
+
+  it("inspects patch paths as a reusable policy decision", () => {
+    const patch = [
+      "diff --git a/src/index.ts b/src/index.ts",
+      "--- a/src/index.ts",
+      "+++ b/src/index.ts",
+      "@@ -1 +1 @@",
+      "-export const value = 1;",
+      "+export const value = 2;",
+      "",
+    ].join("\n");
+
+    expect(inspectPatchPaths(workspaceRoot, patch)).toMatchObject({
+      allowed: true,
+      changedFiles: ["src/index.ts"],
     });
   });
 });

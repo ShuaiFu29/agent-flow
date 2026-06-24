@@ -8,6 +8,16 @@ export const TASK_STATUSES = [
 
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
+export const TASK_STAGES = [
+  "artifact_generation",
+  "patch_approval",
+  "verification",
+  "failure_review",
+  "completed",
+] as const;
+
+export type TaskStage = (typeof TASK_STAGES)[number];
+
 export const AGENT_ROLES = [
   "planner",
   "context",
@@ -36,6 +46,7 @@ export type Task = {
   prompt: string;
   workspaceId?: string;
   status: TaskStatus;
+  stage?: TaskStage;
   createdAt: string;
   updatedAt: string;
 };
@@ -128,14 +139,71 @@ export type ContextSnapshot = {
   createdAt: string;
 };
 
+export type PatchFailureCode =
+  | "empty_patch"
+  | "path_not_allowed"
+  | "patch_check_failed"
+  | "patch_apply_failed";
+
+export type PatchPrecheckIssue = {
+  code: PatchFailureCode;
+  message: string;
+  path?: string;
+};
+
+export type PatchPrecheckStatus = "pending" | "passed" | "failed";
+
+export type PatchPrecheck = {
+  status: PatchPrecheckStatus;
+  changedFiles: string[];
+  message: string;
+  issues: PatchPrecheckIssue[];
+  checkedAt?: string;
+};
+
+export type PatchApplyStatus = "not_started" | "applied" | "failed";
+
+export type PatchApplyResult = {
+  status: PatchApplyStatus;
+  changedFiles: string[];
+  message: string;
+  appliedAt?: string;
+  failureCode?: PatchFailureCode;
+};
+
+export type PatchLifecycleStatus =
+  | "generated"
+  | "precheck_failed"
+  | "awaiting_approval"
+  | "rejected"
+  | "applied"
+  | "apply_failed";
+
+export type PatchLifecycle = {
+  id: string;
+  taskId: string;
+  patchArtifactId: string;
+  approvalId?: string;
+  status: PatchLifecycleStatus;
+  precheck: PatchPrecheck;
+  applyResult?: PatchApplyResult;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type CommandRunStatus = "queued" | "running" | "passed" | "failed" | "cancelled";
 
 export type CommandRun = {
   id: string;
   taskId: string;
+  approvalId?: string;
   command: string;
   status: CommandRunStatus;
   exitCode?: number;
+  stdout?: string;
+  stderr?: string;
+  createdAt?: string;
+  updatedAt?: string;
   startedAt?: string;
   completedAt?: string;
   outputArtifactId?: string;

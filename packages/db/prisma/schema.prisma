@@ -20,11 +20,56 @@ model Task {
   artifacts Artifact[]
   approvals Approval[]
   taskSource TaskSource?
+  contextSnapshot ContextSnapshot?
+  patchLifecycle PatchLifecycle?
+  commandRuns CommandRun[]
   auditEvents AuditEvent[]
 
   @@index([status])
   @@index([createdAt])
   @@index([workspaceId])
+}
+
+model ContextSnapshot {
+  id            String   @id
+  taskId        String   @unique
+  selectedFiles String
+  rejectedFiles String
+  createdAt     DateTime
+  task          Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+}
+
+model PatchLifecycle {
+  id             String   @id
+  taskId         String   @unique
+  patchArtifactId String
+  approvalId     String?
+  status         String
+  precheck       String
+  applyResult    String?
+  createdAt      DateTime
+  updatedAt      DateTime
+  task           Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+}
+
+model CommandRun {
+  id             String   @id
+  taskId         String
+  approvalId     String?
+  command        String
+  status         String
+  exitCode       Int?
+  stdout         String?
+  stderr         String?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  outputArtifactId String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  task           Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
+  @@index([taskId, status])
 }
 
 model Event {

@@ -1,6 +1,6 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { applyWorkspacePatch } from "../execution/apply-patch";
+import { applyWorkspacePatch, precheckWorkspacePatch } from "../execution/apply-patch";
 import { runAllowedCommand } from "../execution/run-command";
 import { readWorkspaceFiles, scanWorkspace } from "../workspace/workspace-scan";
 
@@ -57,6 +57,19 @@ export async function startRunnerControlServer(input: {
           patch: string;
         };
         const result = await applyWorkspacePatch({
+          workspaceRoot: body.workspaceRoot,
+          patch: body.patch,
+        });
+        writeJson(response, 200, result);
+        return;
+      }
+
+      if (request.url === "/patch/precheck") {
+        const body = (await readJsonBody(request)) as {
+          workspaceRoot: string;
+          patch: string;
+        };
+        const result = await precheckWorkspacePatch({
           workspaceRoot: body.workspaceRoot,
           patch: body.patch,
         });

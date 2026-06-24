@@ -1,0 +1,21 @@
+{
+  "name": "@agent-flow/context",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@agent-flow/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.0"
+  }
+}
