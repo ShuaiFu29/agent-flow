@@ -14,42 +14,42 @@ export class TasksController {
   constructor(@Inject(TasksService) private readonly tasksService: TasksService) {}
 
   @Post()
-  createTask(@Body() body: CreateTaskBody): Task {
+  createTask(@Body() body: CreateTaskBody): Promise<Task> {
     return this.tasksService.createTask(body);
   }
 
   @Get()
-  listTasks(): Task[] {
+  listTasks(): Promise<Task[]> {
     return this.tasksService.listTasks();
   }
 
   @Get(":taskId")
-  getTask(@Param("taskId") taskId: string): Task {
+  getTask(@Param("taskId") taskId: string): Promise<Task> {
     return this.tasksService.getTask(taskId);
   }
 
   @Get(":taskId/events")
-  listEvents(@Param("taskId") taskId: string): AgentFlowEvent[] {
+  listEvents(@Param("taskId") taskId: string): Promise<AgentFlowEvent[]> {
     return this.tasksService.listEvents(taskId);
   }
 
   @Get(":taskId/artifacts")
-  listArtifacts(@Param("taskId") taskId: string): Artifact[] {
+  listArtifacts(@Param("taskId") taskId: string): Promise<Artifact[]> {
     return this.tasksService.listArtifacts(taskId);
   }
 
   @Get(":taskId/approvals")
-  listApprovals(@Param("taskId") taskId: string): Approval[] {
+  listApprovals(@Param("taskId") taskId: string): Promise<Approval[]> {
     return this.tasksService.listApprovals(taskId);
   }
 
   @Get(":taskId/audit")
-  listAuditEvents(@Param("taskId") taskId: string): AuditEvent[] {
+  listAuditEvents(@Param("taskId") taskId: string): Promise<AuditEvent[]> {
     return this.tasksService.listAuditEvents(taskId);
   }
 
   @Get(":taskId/source")
-  getTaskSource(@Param("taskId") taskId: string): TaskSource {
+  getTaskSource(@Param("taskId") taskId: string): Promise<TaskSource> {
     return this.tasksService.getTaskSource(taskId);
   }
 

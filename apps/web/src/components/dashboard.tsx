@@ -16,6 +16,8 @@ import type {
 } from "@agent-flow/shared";
 import { AgentFlowApiClient, createApiClient } from "../lib/api";
 import { demoArtifacts, demoEvents, demoTask } from "../lib/demo-data";
+import { getTaskStatusLabel, getTaskStatusTone, isWaitingForApproval } from "../lib/task-status";
+import { resolveWorkspacePresentation } from "../lib/workspaces";
 import { Logo } from "./logo";
 
 type LoadState = "idle" | "loading" | "error";
@@ -48,6 +50,14 @@ const demoWorkspace: Workspace = {
   runnerMode: "simulated",
   branch: "main",
   lastHeartbeatAt: "2026-06-23T00:00:10.000Z",
+};
+
+const emptyWorkspace: Workspace = {
+  id: "workspace_empty",
+  name: "未连接工作区",
+  rootPath: "--",
+  status: "offline",
+  runnerMode: "local",
 };
 
 const demoWorkspaces: Workspace[] = [
@@ -210,6 +220,8 @@ export function Dashboard() {
   const [taskSource, setTaskSource] = useState<TaskSource | null>(null);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("idle");
+  const [approvalActionId, setApprovalActionId] = useState<string | null>(null);
+  const [approvalError, setApprovalError] = useState<string | null>(null);
   const [apiOnline, setApiOnline] = useState(true);
   const [formTitle, setFormTitle] = useState("增加邮箱登录流程");
   const [formPrompt, setFormPrompt] = useState("在现有项目中增加登录页面，支持邮箱和密码登录。");
@@ -277,15 +289,24 @@ export function Dashboard() {
     () => tasks.find((task) => task.id === selectedTaskId) ?? null,
     [selectedTaskId, tasks],
   );
+  const workspacePresentation = useMemo(
+    () =>
+      resolveWorkspacePresentation({
+        apiOnline,
+        workspaces,
+        demoWorkspaces,
+      }),
+    [apiOnline, workspaces],
+  );
   const selectedWorkspace = useMemo(
     () =>
-      workspaces.find((workspace) => workspace.id === selectedTask?.workspaceId) ??
-      workspaces[0] ??
-      demoWorkspace,
-    [selectedTask?.workspaceId, workspaces],
+      workspacePresentation.workspaces.find((workspace) => workspace.id === selectedTask?.workspaceId) ??
+      workspacePresentation.workspaces[0] ??
+      emptyWorkspace,
+    [selectedTask?.workspaceId, workspacePresentation.workspaces],
   );
   const displayTasks = apiOnline ? tasks : tasks.length > 0 ? tasks : [demoTask];
-  const displayWorkspaces = apiOnline ? workspaces : workspaces.length > 0 ? workspaces : demoWorkspaces;
+  const displayWorkspaces = workspacePresentation.workspaces;
   const displayEvents = apiOnline ? events : events.length > 0 ? events : demoEvents;
   const displayArtifacts = apiOnline ? artifacts : artifacts.length > 0 ? artifacts : demoArtifacts;
   const displayApprovals = apiOnline ? approvals : approvals.length > 0 ? approvals : demoApprovals;
@@ -334,6 +355,62 @@ export function Dashboard() {
       setApiOnline(false);
     } finally {
       setLoadState("idle");
+    }
+  }
+
+  async function refreshTaskState(taskId: string): Promise<void> {
+    const [nextTasks, nextWorkspaces] = await Promise.all([api.listTasks(), api.listWorkspaces()]);
+    setTasks(nextTasks);
+    setWorkspaces(nextWorkspaces);
+
+    const resolvedTaskId = nextTasks.find((task) => task.id === taskId)?.id ?? nextTasks[0]?.id ?? null;
+    setSelectedTaskId(resolvedTaskId);
+
+    if (!resolvedTaskId) {
+      setEvents([]);
+      setArtifacts([]);
+      setApprovals([]);
+      setAuditEvents([]);
+      setTaskSource(null);
+      setSelectedArtifactId(null);
+      return;
+    }
+
+    await loadTaskDetails({
+      api,
+      setApiOnline,
+      setApprovals,
+      setArtifacts,
+      setAuditEvents,
+      setEvents,
+      setSelectedArtifactId,
+      setTaskSource,
+      taskId: resolvedTaskId,
+    });
+  }
+
+  async function handleApprovalDecision(approval: Approval, decision: "approve" | "reject"): Promise<void> {
+    if (!apiOnline) {
+      return;
+    }
+
+    setApprovalError(null);
+    setApprovalActionId(approval.id);
+
+    try {
+      if (decision === "approve") {
+        await api.approveApproval(approval.id);
+      } else {
+        await api.rejectApproval(approval.id);
+      }
+
+      await refreshTaskState(approval.taskId);
+      setTaskMode("detail");
+      setApiOnline(true);
+    } catch (error) {
+      setApprovalError(error instanceof Error ? error.message : "审批执行失败，请稍后重试。");
+    } finally {
+      setApprovalActionId(null);
     }
   }
 
@@ -390,6 +467,7 @@ export function Dashboard() {
             <TopbarActions
               apiOnline={apiOnline}
               onCreateTask={() => setTaskMode("create")}
+              onOpenApprovals={() => setActiveView("approvals")}
               onRefresh={() =>
                 void loadDashboardData({
                   api,
@@ -418,7 +496,14 @@ export function Dashboard() {
   function renderActiveView() {
     switch (activeView) {
       case "workspace":
-        return <WorkspaceView apiOnline={apiOnline} selectedWorkspace={selectedWorkspace} workspaces={displayWorkspaces} />;
+        return (
+          <WorkspaceView
+            apiOnline={apiOnline}
+            selectedWorkspace={selectedWorkspace}
+            showEmptyState={workspacePresentation.showEmptyState}
+            workspaces={displayWorkspaces}
+          />
+        );
       case "artifacts":
         return (
           <ArtifactsView
@@ -427,7 +512,17 @@ export function Dashboard() {
           />
         );
       case "approvals":
-        return <ApprovalsView approvals={displayApprovals} workspaceName={selectedWorkspace.name} />;
+        return (
+          <ApprovalsView
+            actionApprovalId={approvalActionId}
+            apiOnline={apiOnline}
+            approvalError={approvalError}
+            approvals={displayApprovals}
+            onApprove={(approval) => void handleApprovalDecision(approval, "approve")}
+            onReject={(approval) => void handleApprovalDecision(approval, "reject")}
+            workspaceName={selectedWorkspace.name}
+          />
+        );
       case "audit":
         return <AuditView apiOnline={apiOnline} auditEvents={displayAuditEvents} />;
       case "settings":
@@ -438,14 +533,19 @@ export function Dashboard() {
           <TasksView
             api={api}
             apiOnline={apiOnline}
+            approvalActionId={approvalActionId}
+            approvalError={approvalError}
+            approvals={displayApprovals}
             artifacts={displayArtifacts}
             completedEvents={completedEvents}
             disabled={loadState === "loading"}
             events={displayEvents}
             formPrompt={formPrompt}
             formTitle={formTitle}
+            onApproveApproval={(approval) => void handleApprovalDecision(approval, "approve")}
             onArtifactSelect={setSelectedArtifactId}
             onPromptChange={setFormPrompt}
+            onRejectApproval={(approval) => void handleApprovalDecision(approval, "reject")}
             onSelectTask={setSelectedTaskId}
             onSubmit={handleCreateTask}
             onSwitchMode={setTaskMode}
@@ -466,14 +566,19 @@ export function Dashboard() {
 function TasksView({
   api,
   apiOnline,
+  approvalActionId,
+  approvalError,
+  approvals,
   artifacts,
   completedEvents,
   disabled,
   events,
   formPrompt,
   formTitle,
+  onApproveApproval,
   onArtifactSelect,
   onPromptChange,
+  onRejectApproval,
   onSelectTask,
   onSubmit,
   onSwitchMode,
@@ -488,14 +593,19 @@ function TasksView({
 }: {
   api: AgentFlowApiClient;
   apiOnline: boolean;
+  approvalActionId: string | null;
+  approvalError: string | null;
+  approvals: Approval[];
   artifacts: Artifact[];
   completedEvents: number;
   disabled: boolean;
   events: AgentFlowEvent[];
   formPrompt: string;
   formTitle: string;
+  onApproveApproval: (approval: Approval) => void;
   onArtifactSelect: (artifactId: string) => void;
   onPromptChange: (value: string) => void;
+  onRejectApproval: (approval: Approval) => void;
   onSelectTask: (taskId: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onSwitchMode: (mode: TaskMode) => void;
@@ -532,7 +642,18 @@ function TasksView({
           selectedArtifactId={selectedArtifactId}
           onSelect={onArtifactSelect}
         />
-        <TaskInfo artifacts={artifacts} events={events} task={selectedTask} workspace={selectedWorkspace} />
+        <TaskInfo
+          apiOnline={apiOnline}
+          approvalActionId={approvalActionId}
+          approvalError={approvalError}
+          approvals={approvals}
+          artifacts={artifacts}
+          events={events}
+          onApproveApproval={onApproveApproval}
+          onRejectApproval={onRejectApproval}
+          task={selectedTask}
+          workspace={selectedWorkspace}
+        />
       </div>
     );
   }
@@ -579,6 +700,7 @@ function TasksView({
 function TopbarActions({
   apiOnline,
   onCreateTask,
+  onOpenApprovals,
   onRefresh,
   pendingApprovalCount,
   selectedWorkspaceName,
@@ -587,6 +709,7 @@ function TopbarActions({
 }: {
   apiOnline: boolean;
   onCreateTask: () => void;
+  onOpenApprovals: () => void;
   onRefresh: () => void;
   pendingApprovalCount: number;
   selectedWorkspaceName: string;
@@ -598,7 +721,7 @@ function TopbarActions({
       return (
         <>
           <span className={`tag ${pendingApprovalCount > 0 ? "amber" : "blue"}`}>{pendingApprovalCount > 0 ? "待审批" : "已完成"}</span>
-          <button className="btn secondary" type="button">查看审计</button>
+          <button className="btn secondary" onClick={onOpenApprovals} type="button">前往审批</button>
         </>
       );
     }
@@ -648,13 +771,45 @@ function TopbarActions({
 function WorkspaceView({
   apiOnline,
   selectedWorkspace,
+  showEmptyState,
   workspaces,
 }: {
   apiOnline: boolean;
   selectedWorkspace: Workspace;
+  showEmptyState: boolean;
   workspaces: Workspace[];
 }) {
   const onlineCount = workspaces.filter((workspace) => workspace.status === "online").length;
+
+  if (showEmptyState) {
+    return (
+      <div className="grid-3">
+        <section className="panel" data-testid="workspace-summary">
+          <div className="panel-head"><h4>最近工作区</h4><span className="badge">0 在线</span></div>
+          <div className="panel-body">
+            <div className="notice">当前还没有已注册的本地工作区。先启动 local runner，再回来选择工作区。</div>
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="panel-head"><h4>当前能力</h4><span className="badge blue">V1 阶段 A</span></div>
+          <div className="panel-body split-list">
+            <div className="policy"><strong>真实注册</strong><p>工作区来自真实 runner 注册，而不是示例 seed。</p></div>
+            <div className="policy"><strong>在线状态</strong><p>通过 heartbeat 维护 runner 在线/离线状态。</p></div>
+            <div className="policy"><strong>真实控制台</strong><p>Web 只展示 API 返回的工作区数据。</p></div>
+            <div className="policy"><strong>执行边界</strong><p>patch 和命令执行会在后续阶段接入。</p></div>
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="panel-head"><h4>下一步</h4><span className="badge amber">需要连接</span></div>
+          <div className="panel-body">
+            <div className="notice">先运行 agent-flow connect 命令并传入 workspace 路径和 API 地址，让本地项目注册到控制台。</div>
+          </div>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -790,10 +945,20 @@ function ArtifactsView({
 }
 
 function ApprovalsView({
+  actionApprovalId,
+  apiOnline,
+  approvalError,
   approvals,
+  onApprove,
+  onReject,
   workspaceName,
 }: {
+  actionApprovalId: string | null;
+  apiOnline: boolean;
+  approvalError: string | null;
   approvals: Approval[];
+  onApprove: (approval: Approval) => void;
+  onReject: (approval: Approval) => void;
   workspaceName: string;
 }) {
   const pendingCount = approvals.filter((approval) => approval.status === "pending").length;
@@ -805,6 +970,11 @@ function ApprovalsView({
         <h4>待处理审批</h4>
         <span className="badge amber">{pendingCount > 0 ? "需要确认" : "等待补丁"}</span>
       </div>
+      {approvalError ? (
+        <div className="panel-body">
+          <div className="notice">{approvalError}</div>
+        </div>
+      ) : null}
       <table>
         <thead>
           <tr><th>操作</th><th>任务</th><th>工作区</th><th>风险</th><th>状态</th></tr>
@@ -820,21 +990,38 @@ function ApprovalsView({
           {rows.map((approval) => (
             <tr key={approval.id}>
               <td>
-                <div className="title">{approval.kind === "apply_patch" ? "应用 patch.diff" : "运行 pnpm test"}</div>
-                <div className="desc">
-                  {approval.kind === "apply_patch"
-                    ? "补丁写入需要手动确认"
-                    : "审批补丁后自动执行"}
-                </div>
+                <div className="title">{getApprovalTitle(approval)}</div>
+                <div className="desc">{getApprovalDescription(approval)}</div>
               </td>
               <td>{approval.taskId.slice(0, 12)}</td>
               <td>{workspaceName}</td>
-              <td><span className={`badge ${approval.kind === "apply_patch" ? "amber" : "green"}`}>{approval.kind === "apply_patch" ? "中" : "低"}</span></td>
+              <td><span className={`badge ${getApprovalRiskTone(approval)}`}>{getApprovalRiskLabel(approval)}</span></td>
               <td>
                 {approval.status === "pending" ? (
-                  <button className="btn" type="button">查看</button>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button
+                      className="btn"
+                      data-testid={`approve-${approval.id}`}
+                      disabled={!apiOnline || actionApprovalId === approval.id}
+                      onClick={() => onApprove(approval)}
+                      type="button"
+                    >
+                      {actionApprovalId === approval.id ? "处理中" : "批准"}
+                    </button>
+                    <button
+                      className="btn secondary"
+                      data-testid={`reject-${approval.id}`}
+                      disabled={!apiOnline || actionApprovalId === approval.id}
+                      onClick={() => onReject(approval)}
+                      type="button"
+                    >
+                      拒绝
+                    </button>
+                  </div>
                 ) : (
-                  <span className="badge">已批准</span>
+                  <span className={`badge ${approval.status === "approved" ? "green" : "red"}`}>
+                    {approval.status === "approved" ? "已批准" : "已拒绝"}
+                  </span>
                 )}
               </td>
             </tr>
@@ -964,7 +1151,7 @@ function TaskList({
                   <div className="desc">{task.prompt}</div>
                 </button>
               </td>
-              <td><span className={`badge ${task.status === "failed" ? "red" : task.status === "completed" ? "amber" : "blue"}`}>{task.status === "completed" ? "等待审批" : task.status === "failed" ? "失败" : "运行中"}</span></td>
+              <td><span className={`badge ${getTaskStatusTone(task.status)}`}>{getTaskStatusLabel(task.status)}</span></td>
               <td><span className="badge amber">中</span></td>
               <td>{formatClock(task.updatedAt)}</td>
             </tr>
@@ -1209,16 +1396,30 @@ function ArtifactPanel({
 }
 
 function TaskInfo({
+  apiOnline,
+  approvalActionId,
+  approvalError,
+  approvals,
   artifacts,
   events,
+  onApproveApproval,
+  onRejectApproval,
   task,
   workspace,
 }: {
+  apiOnline: boolean;
+  approvalActionId: string | null;
+  approvalError: string | null;
+  approvals: Approval[];
   artifacts: Artifact[];
   events: AgentFlowEvent[];
+  onApproveApproval: (approval: Approval) => void;
+  onRejectApproval: (approval: Approval) => void;
   task: Task;
   workspace: Workspace;
 }) {
+  const pendingApprovals = approvals.filter((approval) => approval.status === "pending");
+
   return (
     <section className="panel">
       <div className="panel-head">
@@ -1232,6 +1433,35 @@ function TaskInfo({
         <div className="kv"><span>风险等级</span><strong>中</strong></div>
         <div className="kv"><span>下一步命令</span><strong>pnpm test</strong></div>
         <div style={{ height: 8 }} />
+        {approvalError ? <div className="notice">{approvalError}</div> : null}
+        {pendingApprovals.length > 0 ? (
+          <div className="split-list">
+            {pendingApprovals.map((approval) => (
+              <div className="choice" key={approval.id}>
+                <strong>{getApprovalTitle(approval)}</strong>
+                <p>{getApprovalDescription(approval)}</p>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+                  <button
+                    className="btn"
+                    disabled={!apiOnline || approvalActionId === approval.id}
+                    onClick={() => onApproveApproval(approval)}
+                    type="button"
+                  >
+                    {approvalActionId === approval.id ? "处理中" : "批准"}
+                  </button>
+                  <button
+                    className="btn secondary"
+                    disabled={!apiOnline || approvalActionId === approval.id}
+                    onClick={() => onRejectApproval(approval)}
+                    type="button"
+                  >
+                    拒绝
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
         {task.status === "failed" ? (
           <div className="notice">任务执行失败，请先查看审计日志和测试输出，再决定是否重新生成补丁。</div>
         ) : null}
@@ -1256,6 +1486,31 @@ function audit(source: AuditEvent["source"], action: string, message: string): A
     message,
     createdAt: "2026-06-23T00:00:00.000Z",
   };
+}
+
+function getApprovalTitle(approval: Approval): string {
+  if (approval.kind === "apply_patch") {
+    return typeof approval.payload.artifactTitle === "string" ? approval.payload.artifactTitle : "应用 patch.diff";
+  }
+
+  return typeof approval.payload.command === "string" ? `运行 ${approval.payload.command}` : "运行受控命令";
+}
+
+function getApprovalDescription(approval: Approval): string {
+  if (approval.kind === "apply_patch") {
+    return "将已生成的补丁写入到本地工作区，写入前会进行路径和 patch 校验。";
+  }
+
+  const command = typeof approval.payload.command === "string" ? approval.payload.command : "白名单命令";
+  return `批准后 Runner 会在工作区内执行 ${command}，并回写 stdout/stderr。`;
+}
+
+function getApprovalRiskTone(approval: Approval): "amber" | "green" {
+  return approval.kind === "apply_patch" ? "amber" : "green";
+}
+
+function getApprovalRiskLabel(approval: Approval): string {
+  return approval.kind === "apply_patch" ? "中" : "低";
 }
 
 function renderArtifactPreview(artifact: Artifact) {
@@ -1402,7 +1657,7 @@ function getCurrentViewCopy(view: ViewKey, taskMode: TaskMode, selectedTask: Tas
 
   if (taskMode === "detail" && selectedTask) {
     const statusLabel =
-      selectedTask.status === "completed"
+      isWaitingForApproval(selectedTask.status)
         ? "等待审批"
         : selectedTask.status === "failed"
           ? "执行失败"
@@ -1448,3 +1703,4 @@ function getCurrentBrandCopy(view: ViewKey, taskMode: TaskMode, apiOnline: boole
     runnerText: apiOnline ? `已连接到 ${workspace.name}。` : "API 未连接，当前显示本地示例数据。",
   };
 }
+

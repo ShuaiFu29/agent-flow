@@ -26,6 +26,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@agent-flow/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@agent-flow/shared':
         specifier: workspace:*
         version: link:../../packages/shared

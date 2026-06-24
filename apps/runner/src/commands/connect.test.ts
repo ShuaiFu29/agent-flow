@@ -2,6 +2,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   createHeartbeatMessage,
+  createRunnerStatusLine,
   createRegisterMessage,
   parseConnectOptions,
 } from "./connect";
@@ -24,11 +25,13 @@ describe("runner connect command", () => {
     });
   });
 
-  it("creates a v0 register message for the resolved workspace", () => {
+  it("creates a v1 register message for the resolved workspace", () => {
     const workspaceRoot = path.resolve("D:/project/demo");
     const message = createRegisterMessage({
       workspaceRoot,
       runnerId: "runner_test",
+      controlBaseUrl: "http://127.0.0.1:4100",
+      controlToken: "token_connect",
       now: "2026-06-23T00:00:00.000Z",
     });
 
@@ -36,7 +39,10 @@ describe("runner connect command", () => {
       type: "runner_register",
       runnerId: "runner_test",
       workspaceRoot,
-      protocolVersion: "v0",
+      workspaceName: "demo",
+      controlBaseUrl: "http://127.0.0.1:4100",
+      controlToken: "token_connect",
+      protocolVersion: "v1",
       capabilities: ["scan_workspace", "read_files", "run_command"],
       createdAt: "2026-06-23T00:00:00.000Z",
     });
@@ -57,5 +63,18 @@ describe("runner connect command", () => {
       status: "online",
       sentAt: "2026-06-23T00:00:05.000Z",
     });
+  });
+
+  it("formats a concise connected status line for CLI output", () => {
+    const line = createRunnerStatusLine({
+      runnerId: "runner_test",
+      workspaceRoot: path.resolve("D:/project/demo"),
+      apiUrl: "http://localhost:4000",
+      heartbeatIntervalMs: 5000,
+    });
+
+    expect(line).toContain("runner_test");
+    expect(line).toContain("http://localhost:4000");
+    expect(line).toContain("5s");
   });
 });

@@ -64,6 +64,15 @@ describe("InMemoryTasksRepository", () => {
       status: "completed",
       updatedAt: "2026-06-24T00:00:01.000Z",
     });
+    repository.updateArtifact({
+      ...artifact,
+      content: "Updated plan content",
+    });
+    repository.updateApproval({
+      ...approval,
+      status: "approved",
+      decidedAt: "2026-06-24T00:00:02.000Z",
+    });
 
     expect(repository.listTasks()).toEqual([
       expect.objectContaining({ id: task.id, status: "completed" }),
@@ -72,9 +81,18 @@ describe("InMemoryTasksRepository", () => {
       expect.objectContaining({ id: task.id, status: "completed" }),
     );
     expect(repository.listEvents(task.id)).toEqual([event]);
-    expect(repository.listArtifacts(task.id)).toEqual([artifact]);
-    expect(repository.listApprovals()).toEqual([approval]);
-    expect(repository.listApprovals(task.id)).toEqual([approval]);
+    expect(repository.getApproval(approval.id)).toEqual(
+      expect.objectContaining({ id: approval.id, status: "approved" }),
+    );
+    expect(repository.listArtifacts(task.id)).toEqual([
+      expect.objectContaining({ id: artifact.id, content: "Updated plan content" }),
+    ]);
+    expect(repository.listApprovals()).toEqual([
+      expect.objectContaining({ id: approval.id, status: "approved" }),
+    ]);
+    expect(repository.listApprovals(task.id)).toEqual([
+      expect.objectContaining({ id: approval.id, status: "approved" }),
+    ]);
     expect(repository.listAuditEvents()).toEqual([auditEvent]);
     expect(repository.listAuditEvents(task.id)).toEqual([auditEvent]);
     expect(repository.getTaskSource(task.id)).toEqual(taskSource);
@@ -99,14 +117,10 @@ describe("InMemoryTasksRepository", () => {
     expect(repository.getTaskSource("task_empty")).toBeUndefined();
   });
 
-  it("seeds workspace records for the V0 workspace page", () => {
+  it("starts with no registered workspaces or runner sessions", () => {
     const repository = new InMemoryTasksRepository();
 
-    expect(repository.listWorkspaces()).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ name: "demo-app", status: "online" }),
-        expect.objectContaining({ name: "admin-dashboard", status: "offline" }),
-      ]),
-    );
+    expect(repository.listWorkspaces()).toEqual([]);
+    expect(repository.listRunnerSessions()).toEqual([]);
   });
 });

@@ -71,10 +71,28 @@ export type Workspace = {
   rootPath: string;
   status: WorkspaceStatus;
   runnerMode: RunnerMode;
+  runnerId?: string;
   branch?: string;
   lastHeartbeatAt?: string;
   createdAt?: string;
   updatedAt?: string;
+};
+
+export type RunnerSessionStatus = "online" | "offline" | "busy" | "error";
+
+export type RunnerSession = {
+  id: string;
+  runnerId: string;
+  workspaceId: string;
+  workspaceRoot: string;
+  status: RunnerSessionStatus;
+  protocolVersion: "v1";
+  capabilities: string[];
+  controlBaseUrl: string;
+  controlToken: string;
+  connectedAt: string;
+  lastHeartbeatAt: string;
+  disconnectedAt?: string;
 };
 
 export type TaskSourceKind = "manual" | "github_issue" | "document" | "clipboard";

@@ -7,6 +7,7 @@ export type AgentFlowEventType =
   | "artifact_created"
   | "approval_requested"
   | "approval_granted"
+  | "approval_rejected"
   | "runner_log"
   | "task_failed"
   | "task_completed";

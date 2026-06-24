@@ -8,8 +8,9 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "db:generate": "cross-env DATABASE_URL=postgresql://agent_flow:agent_flow@localhost:5432/agent_flow prisma generate --schema prisma/schema.prisma",
-    "db:validate": "cross-env DATABASE_URL=postgresql://agent_flow:agent_flow@localhost:5432/agent_flow prisma validate --schema prisma/schema.prisma",
+    "db:generate": "cross-env DATABASE_URL=file:./dev.db prisma generate --schema prisma/schema.prisma",
+    "db:push": "cross-env DATABASE_URL=file:./dev.db prisma db push --schema prisma/schema.prisma --skip-generate",
+    "db:validate": "cross-env DATABASE_URL=file:./dev.db prisma validate --schema prisma/schema.prisma",
     "lint": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"

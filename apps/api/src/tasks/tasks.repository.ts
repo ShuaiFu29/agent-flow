@@ -1,32 +1,64 @@
+import path from "node:path";
 import { Injectable } from "@nestjs/common";
 import type {
   AgentFlowEvent,
   Approval,
   Artifact,
   AuditEvent,
+  RunnerCapability,
+  RunnerProtocolVersion,
+  RunnerSession,
+  RunnerStatus,
   Task,
   TaskSource,
   Workspace,
 } from "@agent-flow/shared";
 
 export const TASKS_REPOSITORY = "TASKS_REPOSITORY";
+export type MaybePromise<T> = T | Promise<T>;
+
+export type RegisterRunnerInput = {
+  runnerId: string;
+  workspaceRoot: string;
+  workspaceName?: string;
+  branch?: string;
+  controlBaseUrl: string;
+  controlToken: string;
+  protocolVersion: RunnerProtocolVersion;
+  capabilities: RunnerCapability[];
+  createdAt: string;
+};
+
+export type HeartbeatRunnerInput = {
+  runnerId: string;
+  workspaceRoot: string;
+  status: RunnerStatus;
+  sentAt: string;
+};
 
 export interface TasksRepository {
-  createTask(task: Task): Task;
-  updateTask(task: Task): Task;
-  listTasks(): Task[];
-  getTask(taskId: string): Task | undefined;
-  addEvent(event: AgentFlowEvent): AgentFlowEvent;
-  listEvents(taskId: string): AgentFlowEvent[];
-  addArtifact(artifact: Artifact): Artifact;
-  listArtifacts(taskId: string): Artifact[];
-  addApproval(approval: Approval): Approval;
-  listApprovals(taskId?: string): Approval[];
-  addAuditEvent(event: AuditEvent): AuditEvent;
-  listAuditEvents(taskId?: string): AuditEvent[];
-  setTaskSource(source: TaskSource): TaskSource;
-  getTaskSource(taskId: string): TaskSource | undefined;
-  listWorkspaces(): Workspace[];
+  createTask(task: Task): MaybePromise<Task>;
+  updateTask(task: Task): MaybePromise<Task>;
+  listTasks(): MaybePromise<Task[]>;
+  getTask(taskId: string): MaybePromise<Task | undefined>;
+  addEvent(event: AgentFlowEvent): MaybePromise<AgentFlowEvent>;
+  listEvents(taskId: string): MaybePromise<AgentFlowEvent[]>;
+  addArtifact(artifact: Artifact): MaybePromise<Artifact>;
+  updateArtifact(artifact: Artifact): MaybePromise<Artifact>;
+  listArtifacts(taskId: string): MaybePromise<Artifact[]>;
+  addApproval(approval: Approval): MaybePromise<Approval>;
+  updateApproval(approval: Approval): MaybePromise<Approval>;
+  getApproval(approvalId: string): MaybePromise<Approval | undefined>;
+  listApprovals(taskId?: string): MaybePromise<Approval[]>;
+  addAuditEvent(event: AuditEvent): MaybePromise<AuditEvent>;
+  listAuditEvents(taskId?: string): MaybePromise<AuditEvent[]>;
+  setTaskSource(source: TaskSource): MaybePromise<TaskSource>;
+  getTaskSource(taskId: string): MaybePromise<TaskSource | undefined>;
+  registerRunner(input: RegisterRunnerInput): MaybePromise<{ workspace: Workspace; session: RunnerSession }>;
+  heartbeatRunner(input: HeartbeatRunnerInput): MaybePromise<{ workspace: Workspace; session: RunnerSession } | undefined>;
+  listWorkspaces(): MaybePromise<Workspace[]>;
+  listRunnerSessions(): MaybePromise<RunnerSession[]>;
+  getRunnerSessionByWorkspaceId(workspaceId: string): MaybePromise<RunnerSession | undefined>;
 }
 
 @Injectable()
@@ -37,7 +69,8 @@ export class InMemoryTasksRepository implements TasksRepository {
   private readonly approvals = new Map<string, Approval[]>();
   private readonly taskSources = new Map<string, TaskSource>();
   private readonly auditEvents: AuditEvent[] = [];
-  private readonly workspaces: Workspace[] = createSeedWorkspaces();
+  private readonly workspaces = new Map<string, Workspace>();
+  private readonly runnerSessions = new Map<string, RunnerSession>();
 
   createTask(task: Task): Task {
     this.tasks.set(task.id, task);
@@ -78,6 +111,17 @@ export class InMemoryTasksRepository implements TasksRepository {
     return artifact;
   }
 
+  updateArtifact(artifact: Artifact): Artifact {
+    const artifacts = this.artifacts.get(artifact.taskId) ?? [];
+    const index = artifacts.findIndex((currentArtifact) => currentArtifact.id === artifact.id);
+
+    if (index >= 0) {
+      artifacts[index] = artifact;
+    }
+
+    return artifact;
+  }
+
   listArtifacts(taskId: string): Artifact[] {
     return this.artifacts.get(taskId) ?? [];
   }
@@ -86,6 +130,23 @@ export class InMemoryTasksRepository implements TasksRepository {
     this.approvals.get(approval.taskId)?.push(approval);
 
     return approval;
+  }
+
+  updateApproval(approval: Approval): Approval {
+    const approvals = this.approvals.get(approval.taskId) ?? [];
+    const index = approvals.findIndex((currentApproval) => currentApproval.id === approval.id);
+
+    if (index >= 0) {
+      approvals[index] = approval;
+    }
+
+    return approval;
+  }
+
+  getApproval(approvalId: string): Approval | undefined {
+    return Array.from(this.approvals.values())
+      .flat()
+      .find((approval) => approval.id === approvalId);
   }
 
   listApprovals(taskId?: string): Approval[] {
@@ -120,45 +181,106 @@ export class InMemoryTasksRepository implements TasksRepository {
     return this.taskSources.get(taskId);
   }
 
+  registerRunner(input: RegisterRunnerInput): { workspace: Workspace; session: RunnerSession } {
+    const workspaceId = createWorkspaceId(input.workspaceRoot);
+    const sessionId = createRunnerSessionId(input.runnerId);
+    const now = input.createdAt;
+    const existingWorkspace = this.workspaces.get(workspaceId);
+    const workspace: Workspace = {
+      id: workspaceId,
+      name: input.workspaceName?.trim() || path.basename(input.workspaceRoot),
+      rootPath: path.resolve(input.workspaceRoot),
+      status: "online",
+      runnerMode: "local",
+      runnerId: input.runnerId,
+      branch: input.branch,
+      lastHeartbeatAt: now,
+      createdAt: existingWorkspace?.createdAt ?? now,
+      updatedAt: now,
+    };
+    const existingSession = this.runnerSessions.get(sessionId);
+    const session: RunnerSession = {
+      id: sessionId,
+      runnerId: input.runnerId,
+      workspaceId,
+      workspaceRoot: workspace.rootPath,
+      status: "online",
+      protocolVersion: input.protocolVersion,
+      capabilities: [...input.capabilities],
+      controlBaseUrl: input.controlBaseUrl,
+      controlToken: input.controlToken,
+      connectedAt: existingSession?.connectedAt ?? now,
+      lastHeartbeatAt: now,
+      disconnectedAt: undefined,
+    };
+
+    this.workspaces.set(workspaceId, workspace);
+    this.runnerSessions.set(sessionId, session);
+
+    return { workspace, session };
+  }
+
+  heartbeatRunner(input: HeartbeatRunnerInput): { workspace: Workspace; session: RunnerSession } | undefined {
+    const sessionId = createRunnerSessionId(input.runnerId);
+    const session = this.runnerSessions.get(sessionId);
+
+    if (!session) {
+      return undefined;
+    }
+
+    const workspace = this.workspaces.get(session.workspaceId);
+
+    if (!workspace) {
+      return undefined;
+    }
+
+    const nextStatus = input.status === "busy" ? "indexing" : input.status === "offline" ? "offline" : "online";
+    const updatedSession: RunnerSession = {
+      ...session,
+      workspaceRoot: path.resolve(input.workspaceRoot),
+      status: input.status,
+      lastHeartbeatAt: input.sentAt,
+      disconnectedAt: input.status === "offline" ? input.sentAt : undefined,
+    };
+    const updatedWorkspace: Workspace = {
+      ...workspace,
+      runnerId: input.runnerId,
+      rootPath: path.resolve(input.workspaceRoot),
+      status: nextStatus,
+      lastHeartbeatAt: input.sentAt,
+      updatedAt: input.sentAt,
+    };
+
+    this.runnerSessions.set(sessionId, updatedSession);
+    this.workspaces.set(workspace.id, updatedWorkspace);
+
+    return {
+      workspace: updatedWorkspace,
+      session: updatedSession,
+    };
+  }
+
   listWorkspaces(): Workspace[] {
-    return [...this.workspaces];
+    return Array.from(this.workspaces.values());
+  }
+
+  listRunnerSessions(): RunnerSession[] {
+    return Array.from(this.runnerSessions.values());
+  }
+
+  getRunnerSessionByWorkspaceId(workspaceId: string): RunnerSession | undefined {
+    return Array.from(this.runnerSessions.values()).find((session) => session.workspaceId === workspaceId);
   }
 }
 
-function createSeedWorkspaces(): Workspace[] {
-  return [
-    {
-      id: "workspace_demo_app",
-      name: "demo-app",
-      rootPath: "D:\\project\\demo-app",
-      status: "online",
-      runnerMode: "simulated",
-      branch: "main",
-      lastHeartbeatAt: "2026-06-24T03:55:00.000Z",
-      createdAt: "2026-06-24T03:40:00.000Z",
-      updatedAt: "2026-06-24T03:55:00.000Z",
-    },
-    {
-      id: "workspace_admin_dashboard",
-      name: "admin-dashboard",
-      rootPath: "D:\\project\\admin-dashboard",
-      status: "offline",
-      runnerMode: "simulated",
-      branch: "main",
-      lastHeartbeatAt: "2026-06-23T22:10:00.000Z",
-      createdAt: "2026-06-23T22:00:00.000Z",
-      updatedAt: "2026-06-23T22:10:00.000Z",
-    },
-    {
-      id: "workspace_mobile_api",
-      name: "mobile-api",
-      rootPath: "D:\\project\\mobile-api",
-      status: "error",
-      runnerMode: "simulated",
-      branch: "develop",
-      lastHeartbeatAt: "2026-06-23T20:30:00.000Z",
-      createdAt: "2026-06-23T20:00:00.000Z",
-      updatedAt: "2026-06-23T20:30:00.000Z",
-    },
-  ];
+function createWorkspaceId(workspaceRoot: string): string {
+  return `workspace_${sanitizePathSegment(path.resolve(workspaceRoot))}`;
+}
+
+function createRunnerSessionId(runnerId: string): string {
+  return `session_${sanitizePathSegment(runnerId)}`;
+}
+
+function sanitizePathSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase();
 }

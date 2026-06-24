@@ -14,10 +14,17 @@ import {
   type TaskSource,
   type Task,
   type Workspace,
+  type RunnerSession,
   type RunnerCommand,
   type RunnerControlMessage,
+  type RunnerHeartbeatResponse,
+  type RunnerReadRequest,
+  type RunnerReadResponse,
   type RunnerLifecycleEvent,
+  type RunnerRegisterResponse,
   type RunnerResult,
+  type RunnerScanRequest,
+  type RunnerScanResponse,
 } from "./index";
 
 describe("shared domain exports", () => {
@@ -44,6 +51,7 @@ describe("shared domain exports", () => {
     expect(isRunnerCommandAllowed("pnpm test")).toBe(true);
     expect(isRunnerCommandAllowed("npm test")).toBe(true);
     expect(isRunnerCommandAllowed("pnpm lint")).toBe(true);
+    expect(isRunnerCommandAllowed("pnpm typecheck")).toBe(true);
     expect(isRunnerCommandAllowed("rm -rf .")).toBe(false);
   });
 
@@ -59,7 +67,7 @@ describe("shared domain exports", () => {
     const event: AgentFlowEvent = {
       id: "evt_1",
       taskId: "task_1",
-      type: "agent_started",
+      type: "approval_rejected",
       agentRole: "planner",
       message: "Planner started",
       createdAt: "2026-06-23T00:00:00.000Z",
@@ -93,7 +101,7 @@ describe("shared domain exports", () => {
     };
 
     expect(task.status).toBe("running");
-    expect(event.agentRole).toBe("planner");
+    expect(event.type).toBe("approval_rejected");
     expect(command.command).toBe("pnpm test");
     expect(result.exitCode).toBe(0);
     expect(artifact.kind).toBe("plan");
@@ -101,15 +109,17 @@ describe("shared domain exports", () => {
   });
 
   it("supports runner registration and heartbeat protocol shapes", () => {
-    const registerMessage: RunnerControlMessage = {
+    const registerMessage: Extract<RunnerControlMessage, { type: "runner_register" }> = {
       type: "runner_register",
       runnerId: "runner_1",
       workspaceRoot: "D:\\project\\demo",
-      protocolVersion: "v0",
+      controlBaseUrl: "http://127.0.0.1:43123",
+      controlToken: "token_123",
+      protocolVersion: "v1",
       capabilities: ["scan_workspace", "read_files", "run_command"],
       createdAt: "2026-06-23T00:00:00.000Z",
     };
-    const heartbeatMessage: RunnerControlMessage = {
+    const heartbeatMessage: Extract<RunnerControlMessage, { type: "runner_heartbeat" }> = {
       type: "runner_heartbeat",
       runnerId: "runner_1",
       workspaceRoot: "D:\\project\\demo",
@@ -124,11 +134,30 @@ describe("shared domain exports", () => {
       message: "Runner accepted.",
       createdAt: "2026-06-23T00:00:00.000Z",
     };
+    const registerResponse: RunnerRegisterResponse = {
+      accepted: true,
+      workspaceId: "workspace_1",
+      sessionId: "session_1",
+      status: "online",
+      message: "Runner registered.",
+      receivedAt: "2026-06-23T00:00:00.000Z",
+    };
+    const heartbeatResponse: RunnerHeartbeatResponse = {
+      accepted: true,
+      workspaceId: "workspace_1",
+      sessionId: "session_1",
+      status: "online",
+      message: "Heartbeat accepted.",
+      receivedAt: "2026-06-23T00:00:05.000Z",
+    };
 
-    expect(registerMessage.protocolVersion).toBe("v0");
+    expect(registerMessage.protocolVersion).toBe("v1");
     expect(registerMessage.capabilities).toContain("read_files");
+    expect(registerMessage.controlBaseUrl).toContain("127.0.0.1");
     expect(heartbeatMessage.status).toBe("online");
     expect(lifecycleEvent.accepted).toBe(true);
+    expect(registerResponse.sessionId).toBe("session_1");
+    expect(heartbeatResponse.status).toBe("online");
   });
 
   it("supports final-product V0 skeleton domain shapes", () => {
@@ -137,7 +166,21 @@ describe("shared domain exports", () => {
       name: "demo-app",
       rootPath: "D:\\project\\demo-app",
       status: "online",
-      runnerMode: "simulated",
+      runnerMode: "local",
+      runnerId: "runner_1",
+      lastHeartbeatAt: "2026-06-23T00:00:10.000Z",
+    };
+    const runnerSession: RunnerSession = {
+      id: "session_1",
+      runnerId: "runner_1",
+      workspaceId: "workspace_1",
+      workspaceRoot: "D:\\project\\demo-app",
+      status: "online",
+      protocolVersion: "v1",
+      capabilities: ["scan_workspace", "read_files", "run_command"],
+      controlBaseUrl: "http://127.0.0.1:43123",
+      controlToken: "token_123",
+      connectedAt: "2026-06-23T00:00:00.000Z",
       lastHeartbeatAt: "2026-06-23T00:00:10.000Z",
     };
     const taskSource: TaskSource = {
@@ -188,12 +231,56 @@ describe("shared domain exports", () => {
     };
 
     expect(workspace.status).toBe("online");
-    expect(workspace.runnerMode).toBe("simulated");
+    expect(workspace.runnerMode).toBe("local");
+    expect(workspace.runnerId).toBe("runner_1");
+    expect(runnerSession.protocolVersion).toBe("v1");
+    expect(runnerSession.controlBaseUrl).toContain("127.0.0.1");
     expect(taskSource.kind).toBe("manual");
     expect(contextSnapshot.selectedFiles[0]?.relevance).toBe("high");
     expect(contextSnapshot.rejectedFiles[0]?.path).toBe(".env.local");
     expect(commandRun.status).toBe("passed");
     expect(previewSession.port).toBe(3001);
     expect(auditEvent.source).toBe("runner");
+  });
+
+  it("supports workspace scan and read protocol shapes", () => {
+    const scanRequest: RunnerScanRequest = {
+      workspaceRoot: "D:\\project\\demo-app",
+      maxEntries: 200,
+      maxDepth: 4,
+    };
+    const scanResponse: RunnerScanResponse = {
+      workspaceRoot: "D:\\project\\demo-app",
+      branch: "feat/login-flow",
+      topLevelEntries: ["apps", "packages", "package.json"],
+      keyFiles: [
+        {
+          path: "package.json",
+          size: 1024,
+          reason: "Workspace manifest",
+        },
+      ],
+      stackHints: ["pnpm", "typescript", "nextjs"],
+    };
+    const readRequest: RunnerReadRequest = {
+      workspaceRoot: "D:\\project\\demo-app",
+      paths: ["package.json", "apps/web/app/page.tsx"],
+    };
+    const readResponse: RunnerReadResponse = {
+      workspaceRoot: "D:\\project\\demo-app",
+      files: [
+        {
+          path: "package.json",
+          content: "{ \"name\": \"demo-app\" }",
+        },
+      ],
+    };
+
+    expect(scanRequest.maxDepth).toBe(4);
+    expect(scanResponse.branch).toBe("feat/login-flow");
+    expect(scanResponse.keyFiles[0]?.path).toBe("package.json");
+    expect(scanResponse.stackHints).toContain("typescript");
+    expect(readRequest.paths).toHaveLength(2);
+    expect(readResponse.files[0]?.content).toContain("demo-app");
   });
 });

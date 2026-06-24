@@ -5,9 +5,8 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { Command } from "commander";
 import {
-  createHeartbeatMessage,
-  createRegisterMessage,
   parseConnectOptions,
+  runConnectCommand,
 } from "./commands/connect";
 
 export function createCliProgram(): Command {
@@ -24,7 +23,7 @@ export function createCliProgram(): Command {
     .option("-w, --workspace <path>", "workspace directory", ".")
     .option("--api <url>", "agent-flow API URL", "http://localhost:4000")
     .option("--runner-id <id>", "stable runner id for this connection")
-    .action((options: { workspace: string; api: string; runnerId?: string }) => {
+    .action(async (options: { workspace: string; api: string; runnerId?: string }) => {
       const parsedOptions = parseConnectOptions([
         "--workspace",
         options.workspace,
@@ -39,28 +38,7 @@ export function createCliProgram(): Command {
         throw new Error(`Workspace does not exist: ${workspaceRoot}`);
       }
 
-      const registerMessage = createRegisterMessage({
-        workspaceRoot,
-        runnerId: parsedOptions.runnerId,
-      });
-      const heartbeatMessage = createHeartbeatMessage({
-        workspaceRoot,
-        runnerId: parsedOptions.runnerId,
-      });
-
-      console.log(
-        JSON.stringify(
-          {
-            apiUrl: parsedOptions.apiUrl,
-            mode: "scaffold",
-            note: "Runner transport is not enabled in V0 scaffolding.",
-            registerMessage,
-            heartbeatMessage,
-          },
-          null,
-          2,
-        ),
-      );
+      await runConnectCommand(parsedOptions);
     });
 
   return program;

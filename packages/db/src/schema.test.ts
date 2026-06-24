@@ -17,6 +17,15 @@ describe("Prisma schema", () => {
     expect(schema).toContain("model Approval");
   });
 
+  it("defines the V1 durable workspace, runner, source, and audit models", () => {
+    const schema = readFileSync(schemaPath, "utf8");
+
+    expect(schema).toContain("model Workspace");
+    expect(schema).toContain("model RunnerSession");
+    expect(schema).toContain("model TaskSource");
+    expect(schema).toContain("model AuditEvent");
+  });
+
   it("links events, artifacts, and approvals to tasks", () => {
     const schema = readFileSync(schemaPath, "utf8");
 
@@ -24,6 +33,16 @@ describe("Prisma schema", () => {
     expect(schema).toMatch(/artifacts\s+Artifact\[\]/);
     expect(schema).toMatch(/approvals\s+Approval\[\]/);
     expect(schema).toContain("task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)");
+  });
+
+  it("links tasks to task sources and workspaces, and runner sessions to workspaces", () => {
+    const schema = readFileSync(schemaPath, "utf8");
+
+    expect(schema).toMatch(/workspaceId\s+String\?/);
+    expect(schema).toMatch(/workspace\s+Workspace\?/);
+    expect(schema).toMatch(/taskSource\s+TaskSource\?/);
+    expect(schema).toMatch(/runnerSessions\s+RunnerSession\[\]/);
+    expect(schema).toMatch(/auditEvents\s+AuditEvent\[\]/);
   });
 });
 

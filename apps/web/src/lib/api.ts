@@ -44,6 +44,18 @@ export class AgentFlowApiClient {
     return this.request<AuditEvent[]>(path, { cache: "no-store" });
   }
 
+  async approveApproval(approvalId: string): Promise<Approval> {
+    return this.request<Approval>(`/approvals/${approvalId}/approve`, {
+      method: "POST",
+    });
+  }
+
+  async rejectApproval(approvalId: string): Promise<Approval> {
+    return this.request<Approval>(`/approvals/${approvalId}/reject`, {
+      method: "POST",
+    });
+  }
+
   async listWorkspaces(): Promise<Workspace[]> {
     return this.request<Workspace[]>("/workspaces", { cache: "no-store" });
   }

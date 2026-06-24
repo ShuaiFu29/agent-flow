@@ -2,12 +2,15 @@ export const RUNNER_ALLOWED_COMMANDS = [
   "pnpm test",
   "npm test",
   "pnpm lint",
+  "pnpm typecheck",
   "npm run test",
+  "npm run lint",
+  "npm run build",
 ] as const;
 
 export type RunnerAllowedCommand = (typeof RUNNER_ALLOWED_COMMANDS)[number];
 
-export type RunnerProtocolVersion = "v0";
+export type RunnerProtocolVersion = "v1";
 
 export type RunnerCapability =
   | "scan_workspace"
@@ -26,6 +29,10 @@ export type RunnerControlMessage =
       type: "runner_register";
       runnerId: string;
       workspaceRoot: string;
+      workspaceName?: string;
+      branch?: string;
+      controlBaseUrl: string;
+      controlToken: string;
       protocolVersion: RunnerProtocolVersion;
       capabilities: RunnerCapability[];
       createdAt: string;
@@ -62,6 +69,54 @@ export type RunnerLifecycleEvent =
       message: string;
       createdAt: string;
     };
+
+export type RunnerRegisterResponse = {
+  accepted: boolean;
+  workspaceId: string;
+  sessionId: string;
+  status: RunnerStatus;
+  message: string;
+  receivedAt: string;
+};
+
+export type RunnerHeartbeatResponse = {
+  accepted: boolean;
+  workspaceId: string;
+  sessionId: string;
+  status: RunnerStatus;
+  message: string;
+  receivedAt: string;
+};
+
+export type WorkspaceFileSummary = {
+  path: string;
+  size: number;
+  reason: string;
+};
+
+export type RunnerScanRequest = {
+  workspaceRoot: string;
+  maxEntries: number;
+  maxDepth: number;
+};
+
+export type RunnerScanResponse = {
+  workspaceRoot: string;
+  branch: string;
+  topLevelEntries: string[];
+  keyFiles: WorkspaceFileSummary[];
+  stackHints: string[];
+};
+
+export type RunnerReadRequest = {
+  workspaceRoot: string;
+  paths: string[];
+};
+
+export type RunnerReadResponse = {
+  workspaceRoot: string;
+  files: Array<{ path: string; content: string }>;
+};
 
 export type RunnerCommand =
   | { type: "scan_workspace"; commandId: string; taskId: string }

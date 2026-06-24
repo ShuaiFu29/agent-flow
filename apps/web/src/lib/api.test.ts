@@ -78,6 +78,36 @@ describe("AgentFlowApiClient", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(7, "http://localhost:4000/tasks/task_1/source", { cache: "no-store" });
   });
 
+  it("approves and rejects approvals through the V1 API", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ id: "approval_1", taskId: "task_1", kind: "apply_patch", status: "approved" }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ id: "approval_2", taskId: "task_1", kind: "run_command", status: "rejected" }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new AgentFlowApiClient("http://localhost:4000");
+
+    await expect(client.approveApproval("approval_1")).resolves.toMatchObject({
+      id: "approval_1",
+      status: "approved",
+    });
+    await expect(client.rejectApproval("approval_2")).resolves.toMatchObject({
+      id: "approval_2",
+      status: "rejected",
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:4000/approvals/approval_1/approve", {
+      method: "POST",
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:4000/approvals/approval_2/reject", {
+      method: "POST",
+    });
+  });
+
   it("throws a useful error when the API returns a failure", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500, statusText: "Server Error" }));
 
