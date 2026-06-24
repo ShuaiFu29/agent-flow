@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { CommandRun, ContextSnapshot, PatchLifecycle } from "@agent-flow/shared";
+import type { CommandRun, ContextSnapshot, PatchLifecycle, PreviewSession } from "@agent-flow/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CommandRunsPanel, ContextSnapshotPanel, PatchLifecyclePanel, TaskStageSummary } from "../components/dashboard";
 import { AgentFlowApiClient } from "./api";
@@ -40,7 +40,7 @@ describe("AgentFlowApiClient", () => {
     });
   });
 
-  it("loads tasks, events, artifacts, approvals, audit events, workspaces, task sources, patch lifecycle, and command runs", async () => {
+  it("loads tasks, events, artifacts, approvals, audit events, workspaces, task sources, patch lifecycle, command runs, and preview state", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -97,6 +97,19 @@ describe("AgentFlowApiClient", () => {
             completedAt: "2026-06-24T00:00:05.000Z",
           },
         ]),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "preview_1",
+          taskId: "task_1",
+          workspaceId: "workspace_1",
+          status: "running",
+          url: "http://127.0.0.1:3100",
+          port: 3100,
+          command: "npm run dev -- --host 127.0.0.1 --port 3100",
+          startedAt: "2026-06-24T00:00:00.000Z",
+          lastHeartbeatAt: "2026-06-24T00:00:02.000Z",
+        }),
       );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -118,6 +131,11 @@ describe("AgentFlowApiClient", () => {
       status: "awaiting_approval",
     });
     await expect(client.getCommandRuns("task_1")).resolves.toHaveLength(1);
+    await expect(client.getPreviewSession("task_1")).resolves.toMatchObject({
+      id: "preview_1",
+      taskId: "task_1",
+      status: "running",
+    });
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:4000/tasks", { cache: "no-store" });
     expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:4000/tasks/task_1/events", { cache: "no-store" });
@@ -128,6 +146,7 @@ describe("AgentFlowApiClient", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(7, "http://localhost:4000/tasks/task_1/source", { cache: "no-store" });
     expect(fetchMock).toHaveBeenNthCalledWith(8, "http://localhost:4000/tasks/task_1/patch-lifecycle", { cache: "no-store" });
     expect(fetchMock).toHaveBeenNthCalledWith(9, "http://localhost:4000/tasks/task_1/command-runs", { cache: "no-store" });
+    expect(fetchMock).toHaveBeenNthCalledWith(10, "http://localhost:4000/tasks/task_1/preview", { cache: "no-store" });
   });
 
   it("loads a task context snapshot through the V2 API", async () => {
@@ -180,6 +199,64 @@ describe("AgentFlowApiClient", () => {
       method: "POST",
     });
     expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:4000/approvals/approval_2/reject", {
+      method: "POST",
+    });
+  });
+
+  it("starts, restarts, and stops preview through the V2.5 API", async () => {
+    const preview: PreviewSession = {
+      id: "preview_1",
+      taskId: "task_1",
+      workspaceId: "workspace_1",
+      status: "running",
+      url: "http://127.0.0.1:3100",
+      port: 3100,
+      command: "npm run dev -- --host 127.0.0.1 --port 3100",
+      startedAt: "2026-06-24T00:00:00.000Z",
+      lastHeartbeatAt: "2026-06-24T00:00:02.000Z",
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(preview))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ...preview,
+          startedAt: "2026-06-24T00:00:05.000Z",
+          lastHeartbeatAt: "2026-06-24T00:00:06.000Z",
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ...preview,
+          status: "stopped",
+          stoppedAt: "2026-06-24T00:00:07.000Z",
+          lastHeartbeatAt: "2026-06-24T00:00:07.000Z",
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new AgentFlowApiClient("http://localhost:4000");
+
+    await expect(client.startPreview("task_1")).resolves.toMatchObject({
+      id: "preview_1",
+      status: "running",
+    });
+    await expect(client.restartPreview("task_1")).resolves.toMatchObject({
+      id: "preview_1",
+      startedAt: "2026-06-24T00:00:05.000Z",
+    });
+    await expect(client.stopPreview("task_1")).resolves.toMatchObject({
+      id: "preview_1",
+      status: "stopped",
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:4000/tasks/task_1/preview/start", {
+      method: "POST",
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:4000/tasks/task_1/preview/restart", {
+      method: "POST",
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "http://localhost:4000/tasks/task_1/preview/stop", {
       method: "POST",
     });
   });

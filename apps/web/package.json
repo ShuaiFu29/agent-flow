@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "next build",
+    "build": "node -e \"require('node:fs').rmSync('.next', { recursive: true, force: true })\" && next build",
     "dev": "next dev",
     "lint": "tsc -p tsconfig.json --noEmit",
     "start": "next start",

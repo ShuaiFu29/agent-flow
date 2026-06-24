@@ -23,6 +23,7 @@ model Task {
   contextSnapshot ContextSnapshot?
   patchLifecycle PatchLifecycle?
   commandRuns CommandRun[]
+  previewSessions PreviewSession[]
   auditEvents AuditEvent[]
 
   @@index([status])
@@ -126,6 +127,7 @@ model Workspace {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   tasks           Task[]
+  previewSessions PreviewSession[]
   runnerSessions  RunnerSession[]
   auditEvents     AuditEvent[]
 
@@ -150,6 +152,26 @@ model RunnerSession {
 
   @@index([workspaceId])
   @@index([status])
+}
+
+model PreviewSession {
+  id               String   @id
+  taskId           String
+  workspaceId      String
+  status           String
+  url              String
+  port             Int
+  command          String
+  startedAt        DateTime
+  stoppedAt        DateTime?
+  lastHeartbeatAt  DateTime?
+  failureMessage   String?
+  task             Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId])
+  @@index([workspaceId, status])
+  @@index([startedAt])
 }
 
 model TaskSource {

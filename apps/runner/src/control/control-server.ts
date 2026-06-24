@@ -1,6 +1,7 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { applyWorkspacePatch, precheckWorkspacePatch } from "../execution/apply-patch";
+import { createPreviewProcessManager } from "../execution/preview-process";
 import { runAllowedCommand } from "../execution/run-command";
 import { readWorkspaceFiles, scanWorkspace } from "../workspace/workspace-scan";
 
@@ -11,6 +12,7 @@ export async function startRunnerControlServer(input: {
   baseUrl: string;
   close: () => Promise<void>;
 }> {
+  const previewManager = createPreviewProcessManager();
   const server = http.createServer(async (request, response) => {
     try {
       if (!isAuthorized(request.headers.authorization, input.token)) {
@@ -90,6 +92,50 @@ export async function startRunnerControlServer(input: {
         return;
       }
 
+      if (request.url === "/preview/start") {
+        const body = (await readJsonBody(request)) as {
+          workspaceRoot: string;
+        };
+        const result = await previewManager.startPreview({
+          workspaceRoot: body.workspaceRoot,
+        });
+        writeJson(response, 200, result);
+        return;
+      }
+
+      if (request.url === "/preview/stop") {
+        const body = (await readJsonBody(request)) as {
+          workspaceRoot: string;
+        };
+        const result = await previewManager.stopPreview({
+          workspaceRoot: body.workspaceRoot,
+        });
+        writeJson(response, 200, result);
+        return;
+      }
+
+      if (request.url === "/preview/restart") {
+        const body = (await readJsonBody(request)) as {
+          workspaceRoot: string;
+        };
+        const result = await previewManager.restartPreview({
+          workspaceRoot: body.workspaceRoot,
+        });
+        writeJson(response, 200, result);
+        return;
+      }
+
+      if (request.url === "/preview/status") {
+        const body = (await readJsonBody(request)) as {
+          workspaceRoot: string;
+        };
+        const result = await previewManager.getPreviewState({
+          workspaceRoot: body.workspaceRoot,
+        });
+        writeJson(response, 200, result);
+        return;
+      }
+
       writeJson(response, 404, { message: "Not Found" });
     } catch (error) {
       writeJson(response, 400, {
@@ -113,8 +159,9 @@ export async function startRunnerControlServer(input: {
 
   return {
     baseUrl: `http://127.0.0.1:${(address as AddressInfo).port}`,
-    close: () =>
-      new Promise<void>((resolve, reject) => {
+    close: async () => {
+      await previewManager.shutdown();
+      return await new Promise<void>((resolve, reject) => {
         server.close((error) => {
           if (error) {
             reject(error);
@@ -123,7 +170,8 @@ export async function startRunnerControlServer(input: {
 
           resolve();
         });
-      }),
+      });
+    },
   };
 }
 

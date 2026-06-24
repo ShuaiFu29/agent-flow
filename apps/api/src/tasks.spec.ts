@@ -1,7 +1,7 @@
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import fs from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import type { AddressInfo } from "node:net";
+import { createServer as createNetServer, type AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -14,6 +14,199 @@ import { AppModule } from "./app.module";
 
 const execFileAsync = promisify(execFile);
 
+type PreviewFixtureState = {
+  child?: ChildProcessWithoutNullStreams;
+  preview: {
+    status: "starting" | "running" | "stopped" | "failed";
+    url: string;
+    port: number;
+    command: string;
+    startedAt: string;
+    stoppedAt?: string;
+    lastHeartbeatAt?: string;
+    failureMessage?: string;
+  };
+};
+
+function createPreviewFixtureManager() {
+  const sessions = new Map<string, PreviewFixtureState>();
+
+  return {
+    async startPreview(input: { workspaceRoot: string }) {
+      const normalizedWorkspaceRoot = path.resolve(input.workspaceRoot);
+      const existing = sessions.get(normalizedWorkspaceRoot);
+      if (existing?.child) {
+        await stopSession(normalizedWorkspaceRoot, "Preview restarted.");
+      }
+
+      const port = await reservePreviewPort();
+      const startedAt = new Date().toISOString();
+      const command = `npm run dev -- --host 127.0.0.1 --port ${port}`;
+      const invocation =
+        process.platform === "win32"
+          ? {
+              file: process.env.ComSpec ?? "cmd.exe",
+              args: ["/d", "/s", "/c", "npm.cmd", "run", "dev", "--", "--host", "127.0.0.1", "--port", String(port)],
+            }
+          : {
+              file: "npm",
+              args: ["run", "dev", "--", "--host", "127.0.0.1", "--port", String(port)],
+            };
+      const child = spawn(invocation.file, invocation.args, {
+        cwd: normalizedWorkspaceRoot,
+        env: {
+          ...process.env,
+          HOST: "127.0.0.1",
+          HOSTNAME: "127.0.0.1",
+          PORT: String(port),
+        },
+        shell: false,
+        windowsHide: true,
+      });
+
+      const session: PreviewFixtureState = {
+        child,
+        preview: {
+          status: "starting",
+          url: `http://127.0.0.1:${port}`,
+          port,
+          command,
+          startedAt,
+        },
+      };
+      sessions.set(normalizedWorkspaceRoot, session);
+
+      child.on("error", (error) => {
+        session.preview = {
+          ...session.preview,
+          status: "failed",
+          lastHeartbeatAt: new Date().toISOString(),
+          failureMessage: error.message,
+        };
+        session.child = undefined;
+      });
+      child.on("close", (code) => {
+        if (session.preview.status === "stopped") {
+          session.child = undefined;
+          return;
+        }
+
+        session.preview = {
+          ...session.preview,
+          status: "failed",
+          lastHeartbeatAt: new Date().toISOString(),
+          failureMessage: `Preview process exited unexpectedly (exit code ${code ?? 1}).`,
+        };
+        session.child = undefined;
+      });
+
+      const healthy = await waitForPreviewHealth(session.preview.url);
+      if (!healthy) {
+        await terminatePreviewFixtureChild(child);
+        session.preview = {
+          ...session.preview,
+          status: "failed",
+          lastHeartbeatAt: new Date().toISOString(),
+          failureMessage: "Preview process did not become healthy before timeout.",
+        };
+        session.child = undefined;
+
+        return {
+          ok: false,
+          message: "Preview process did not become healthy before timeout.",
+          preview: session.preview,
+        };
+      }
+
+      session.preview = {
+        ...session.preview,
+        status: "running",
+        lastHeartbeatAt: new Date().toISOString(),
+      };
+
+      return {
+        ok: true,
+        message: "Preview is running.",
+        preview: session.preview,
+      };
+    },
+
+    async stopPreview(input: { workspaceRoot: string }) {
+      const stopped = await stopSession(path.resolve(input.workspaceRoot), "Preview stopped.");
+      if (!stopped) {
+        return {
+          ok: false,
+          message: "No preview session found for the workspace.",
+        };
+      }
+
+      return {
+        ok: true,
+        message: "Preview stopped.",
+        preview: stopped.preview,
+      };
+    },
+
+    async restartPreview(input: { workspaceRoot: string }) {
+      await stopSession(path.resolve(input.workspaceRoot), "Preview restarted.");
+      return await this.startPreview(input);
+    },
+
+    async getPreviewState(input: { workspaceRoot: string }) {
+      const session = sessions.get(path.resolve(input.workspaceRoot));
+      if (!session) {
+        return {
+          ok: false,
+          message: "No preview session found for the workspace.",
+        };
+      }
+
+      return {
+        ok: session.preview.status !== "failed",
+        message:
+          session.preview.status === "running"
+            ? "Preview is running."
+            : session.preview.status === "starting"
+              ? "Preview is starting."
+              : session.preview.status === "stopped"
+                ? "Preview is stopped."
+                : session.preview.failureMessage ?? "Preview failed.",
+        preview: session.preview,
+      };
+    },
+
+    async shutdown() {
+      for (const workspaceRoot of Array.from(sessions.keys())) {
+        await stopSession(workspaceRoot, "Preview stopped.");
+      }
+    },
+  };
+
+  async function stopSession(workspaceRoot: string, _message: string) {
+    const session = sessions.get(workspaceRoot);
+    if (!session) {
+      return undefined;
+    }
+
+    if (session.child) {
+      await terminatePreviewFixtureChild(session.child);
+      session.child = undefined;
+    }
+
+    const now = new Date().toISOString();
+    session.preview = {
+      ...session.preview,
+      status: "stopped",
+      stoppedAt: session.preview.stoppedAt ?? now,
+      lastHeartbeatAt: now,
+      failureMessage: undefined,
+    };
+    sessions.set(workspaceRoot, session);
+
+    return session;
+  }
+}
+
 describe("tasks API", () => {
   let app: INestApplication | undefined;
   let controlServer: ReturnType<typeof createServer> | undefined;
@@ -22,12 +215,15 @@ describe("tasks API", () => {
   let databaseUrl = "";
   let previousDatabaseUrl: string | undefined;
   let forcePatchPrecheckFailure = false;
+  let forcePreviewFailure = false;
   const controlToken = "token_123";
   const tempRoots: string[] = [];
+  const previewManager = createPreviewFixtureManager();
 
   beforeEach(async () => {
     previousDatabaseUrl = process.env.DATABASE_URL;
     forcePatchPrecheckFailure = false;
+    forcePreviewFailure = false;
     const databaseRoot = await fs.mkdtemp(path.join(os.tmpdir(), "agent-flow-api-db-"));
     tempRoots.push(databaseRoot);
     databaseUrl = toSqliteDatabaseUrl(path.join(databaseRoot, "agent-flow.db"));
@@ -122,6 +318,48 @@ describe("tasks API", () => {
             return;
           }
 
+          if (req.method === "POST" && req.url === "/preview/start") {
+            const result = forcePreviewFailure
+              ? {
+                  ok: false,
+                  message: "Preview fixture intentionally failed to start.",
+                  preview: {
+                    status: "failed",
+                    url: "http://127.0.0.1:3999",
+                    port: 3999,
+                    command: "npm run dev -- --host 127.0.0.1 --port 3999",
+                    startedAt: new Date().toISOString(),
+                    lastHeartbeatAt: new Date().toISOString(),
+                    failureMessage: "Preview fixture intentionally failed to start.",
+                  },
+                }
+              : await previewManager.startPreview({ workspaceRoot });
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify(result));
+            return;
+          }
+
+          if (req.method === "POST" && req.url === "/preview/status") {
+            const result = await previewManager.getPreviewState({ workspaceRoot });
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify(result));
+            return;
+          }
+
+          if (req.method === "POST" && req.url === "/preview/stop") {
+            const result = await previewManager.stopPreview({ workspaceRoot });
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify(result));
+            return;
+          }
+
+          if (req.method === "POST" && req.url === "/preview/restart") {
+            const result = await previewManager.restartPreview({ workspaceRoot });
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify(result));
+            return;
+          }
+
           res.writeHead(404, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ message: "Not found" }));
         } catch (error) {
@@ -173,7 +411,7 @@ describe("tasks API", () => {
         workspaceName: "agent-flow-task-fixture",
         branch: "feat/v1-workspace-runner",
         protocolVersion: "v1",
-        capabilities: ["scan_workspace", "read_files", "run_command", "apply_patch"],
+        capabilities: ["scan_workspace", "read_files", "run_command", "apply_patch", "preview_server"],
         controlBaseUrl,
         controlToken,
         createdAt: input?.createdAt ?? new Date().toISOString(),
@@ -526,6 +764,124 @@ describe("tasks API", () => {
     );
   });
 
+  it("starts, reads, restarts, and stops preview for a real task workspace", async () => {
+    await registerRunner();
+
+    const createResponse = await request(getHttpServer())
+      .post("/tasks")
+      .send({
+        title: "Preview a real workspace",
+        prompt: "Apply the patch and open the local preview.",
+      })
+      .expect(201);
+    const taskId = createResponse.body.id as string;
+
+    const approvalsResponse = await request(getHttpServer()).get(`/tasks/${taskId}/approvals`).expect(200);
+    const patchApproval = approvalsResponse.body.find((approval: { kind: string }) => approval.kind === "apply_patch");
+    expect(patchApproval).toBeDefined();
+
+    await request(getHttpServer()).post(`/approvals/${patchApproval.id}/approve`).expect(201);
+
+    const startedPreview = await request(getHttpServer()).post(`/tasks/${taskId}/preview/start`).expect(201);
+    expect(startedPreview.body).toMatchObject({
+      taskId,
+      status: "running",
+      url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/),
+      command: expect.stringContaining("dev"),
+    });
+
+    const fetchedPreview = await request(getHttpServer()).get(`/tasks/${taskId}/preview`).expect(200);
+    expect(fetchedPreview.body).toMatchObject({
+      taskId,
+      status: "running",
+      url: startedPreview.body.url,
+    });
+
+    const restartedPreview = await request(getHttpServer()).post(`/tasks/${taskId}/preview/restart`).expect(201);
+    expect(restartedPreview.body).toMatchObject({
+      taskId,
+      status: "running",
+      url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/),
+    });
+
+    const stoppedPreview = await request(getHttpServer()).post(`/tasks/${taskId}/preview/stop`).expect(201);
+    expect(stoppedPreview.body).toMatchObject({
+      taskId,
+      status: "stopped",
+      stoppedAt: expect.any(String),
+    });
+
+    const previewAfterStop = await request(getHttpServer()).get(`/tasks/${taskId}/preview`).expect(200);
+    expect(previewAfterStop.body).toMatchObject({
+      taskId,
+      status: "stopped",
+      stoppedAt: expect.any(String),
+    });
+
+    const auditResponse = await request(getHttpServer()).get(`/tasks/${taskId}/audit`).expect(200);
+    expect(auditResponse.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "preview_started",
+          source: "runner",
+        }),
+        expect.objectContaining({
+          action: "preview_restarted",
+          source: "runner",
+        }),
+        expect.objectContaining({
+          action: "preview_stopped",
+          source: "runner",
+        }),
+      ]),
+    );
+  });
+
+  it("persists failed preview startup and audit state when preview launch fails", async () => {
+    await registerRunner();
+
+    const createResponse = await request(getHttpServer())
+      .post("/tasks")
+      .send({
+        title: "Preview failure",
+        prompt: "Apply the patch and exercise a failed preview start.",
+      })
+      .expect(201);
+    const taskId = createResponse.body.id as string;
+
+    const approvalsResponse = await request(getHttpServer()).get(`/tasks/${taskId}/approvals`).expect(200);
+    const patchApproval = approvalsResponse.body.find((approval: { kind: string }) => approval.kind === "apply_patch");
+    expect(patchApproval).toBeDefined();
+
+    await request(getHttpServer()).post(`/approvals/${patchApproval.id}/approve`).expect(201);
+    forcePreviewFailure = true;
+
+    const failedPreview = await request(getHttpServer()).post(`/tasks/${taskId}/preview/start`).expect(201);
+    expect(failedPreview.body).toMatchObject({
+      taskId,
+      status: "failed",
+      failureMessage: "Preview fixture intentionally failed to start.",
+    });
+
+    const fetchedPreview = await request(getHttpServer()).get(`/tasks/${taskId}/preview`).expect(200);
+    expect(fetchedPreview.body).toMatchObject({
+      taskId,
+      status: "failed",
+      failureMessage: "Preview fixture intentionally failed to start.",
+    });
+
+    const auditResponse = await request(getHttpServer()).get(`/tasks/${taskId}/audit`).expect(200);
+    expect(auditResponse.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "preview_failed",
+          source: "runner",
+          message: "Preview fixture intentionally failed to start.",
+        }),
+      ]),
+    );
+  });
+
   it("lists tasks and returns 404 for unknown task ids", async () => {
     await registerRunner();
 
@@ -775,12 +1131,37 @@ describe("tasks API", () => {
     await fs.writeFile(path.join(root, "src/secondary.ts"), "export const secondaryTarget = 'ready';\n", "utf8");
     await fs.writeFile(path.join(root, "README.md"), "# agent-flow api fixture\n", "utf8");
     await fs.writeFile(
+      path.join(root, "preview-server.mjs"),
+      [
+        'import http from "node:http";',
+        "",
+        'const host = process.env.HOST ?? process.env.HOSTNAME ?? "127.0.0.1";',
+        'const port = Number(process.env.PORT ?? "3000");',
+        "",
+        "const server = http.createServer((_request, response) => {",
+        '  response.writeHead(200, { "Content-Type": "text/plain" });',
+        '  response.end("agent-flow preview ok");',
+        "});",
+        "",
+        "server.listen(port, host);",
+        "",
+        "const shutdown = () => {",
+        "  server.close(() => process.exit(0));",
+        "};",
+        "",
+        'process.on("SIGTERM", shutdown);',
+        'process.on("SIGINT", shutdown);',
+      ].join("\n"),
+      "utf8",
+    );
+    await fs.writeFile(
       path.join(root, "package.json"),
       JSON.stringify(
         {
           name: "agent-flow-api-fixture",
           version: "1.0.0",
           scripts: {
+            dev: "node preview-server.mjs",
             test: input.testScript,
           },
         },
@@ -817,6 +1198,8 @@ describe("tasks API", () => {
   }
 
   async function closeControlServer(): Promise<void> {
+    await previewManager.shutdown();
+
     if (!controlServer) {
       return;
     }
@@ -959,6 +1342,77 @@ async function runWorkspaceCommand(
         stderr,
       });
     });
+  });
+}
+
+async function reservePreviewPort(): Promise<number> {
+  return await new Promise<number>((resolve, reject) => {
+    const server = createNetServer();
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        server.close();
+        reject(new Error("Failed to reserve a preview port."));
+        return;
+      }
+
+      const port = address.port;
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve(port);
+      });
+    });
+    server.on("error", reject);
+  });
+}
+
+async function waitForPreviewHealth(url: string): Promise<boolean> {
+  const deadline = Date.now() + 8_000;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(url, { method: "GET" });
+      if (response.ok || response.status < 500) {
+        return true;
+      }
+    } catch {
+      // Poll until timeout.
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+
+  return false;
+}
+
+async function terminatePreviewFixtureChild(child: ChildProcessWithoutNullStreams): Promise<void> {
+  if (!child.pid) {
+    return;
+  }
+
+  if (process.platform === "win32") {
+    await new Promise<void>((resolve, reject) => {
+      const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+        shell: false,
+        windowsHide: true,
+      });
+      killer.on("error", reject);
+      killer.on("close", () => resolve());
+    });
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    child.once("close", () => resolve());
+    child.kill("SIGTERM");
+    setTimeout(() => {
+      if (!child.killed) {
+        child.kill("SIGKILL");
+      }
+    }, 1_000);
   });
 }
 

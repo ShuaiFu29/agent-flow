@@ -29,6 +29,7 @@ describe("Prisma schema", () => {
     expect(schema).toContain("model ContextSnapshot");
     expect(schema).toContain("model PatchLifecycle");
     expect(schema).toContain("model CommandRun");
+    expect(schema).toContain("model PreviewSession");
   });
 
   it("links events, artifacts, and approvals to tasks", () => {
@@ -49,6 +50,7 @@ describe("Prisma schema", () => {
     expect(schema).toMatch(/contextSnapshot\s+ContextSnapshot\?/);
     expect(schema).toMatch(/patchLifecycle\s+PatchLifecycle\?/);
     expect(schema).toMatch(/commandRuns\s+CommandRun\[\]/);
+    expect(schema).toMatch(/previewSessions\s+PreviewSession\[\]/);
     expect(schema).toMatch(/runnerSessions\s+RunnerSession\[\]/);
     expect(schema).toMatch(/auditEvents\s+AuditEvent\[\]/);
   });
@@ -97,6 +99,45 @@ describe("SQLite bootstrap upgrades", () => {
       expect(columnNames).toContain("approvalId");
       expect(columnNames).toContain("stdout");
       expect(columnNames).toContain("stderr");
+    } finally {
+      upgradedDatabase.close();
+    }
+  });
+
+  it("adds newly required PreviewSession columns to an existing database", () => {
+    const root = mkdtempSync(join(tmpdir(), "agent-flow-preview-upgrade-"));
+    const databasePath = join(root, "agent-flow.db");
+    const database = new DatabaseSync(databasePath);
+
+    try {
+      database.exec(`
+        CREATE TABLE "PreviewSession" (
+          "id" TEXT NOT NULL PRIMARY KEY,
+          "taskId" TEXT NOT NULL,
+          "workspaceId" TEXT NOT NULL,
+          "status" TEXT NOT NULL,
+          "url" TEXT NOT NULL,
+          "port" INTEGER NOT NULL,
+          "command" TEXT NOT NULL,
+          "startedAt" DATETIME NOT NULL
+        );
+      `);
+    } finally {
+      database.close();
+    }
+
+    ensureSqliteSchema(`file:${databasePath.replaceAll("\\", "/")}`);
+
+    const upgradedDatabase = new DatabaseSync(databasePath);
+    try {
+      const columns = upgradedDatabase
+        .prepare(`PRAGMA table_info("PreviewSession")`)
+        .all() as Array<{ name: string }>;
+      const columnNames = columns.map((column) => column.name);
+
+      expect(columnNames).toContain("stoppedAt");
+      expect(columnNames).toContain("lastHeartbeatAt");
+      expect(columnNames).toContain("failureMessage");
     } finally {
       upgradedDatabase.close();
     }

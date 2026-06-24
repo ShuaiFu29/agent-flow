@@ -220,7 +220,9 @@ export type PreviewSession = {
   port: number;
   command: string;
   startedAt: string;
+  lastHeartbeatAt?: string;
   stoppedAt?: string;
+  failureMessage?: string;
 };
 
 export type AuditEventSource = "user" | "system" | "agent" | "runner";

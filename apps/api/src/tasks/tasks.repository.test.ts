@@ -83,6 +83,17 @@ describe("InMemoryTasksRepository", () => {
       completedAt: "2026-06-24T00:00:06.000Z",
       outputArtifactId: artifact.id,
     };
+    const previewSession = {
+      id: "preview_1",
+      taskId: task.id,
+      workspaceId: "workspace_1",
+      status: "running" as const,
+      url: "http://127.0.0.1:3100",
+      port: 3100,
+      command: "pnpm dev -- --port 3100 --hostname 127.0.0.1",
+      startedAt: "2026-06-24T00:00:07.000Z",
+      lastHeartbeatAt: "2026-06-24T00:00:08.000Z",
+    };
 
     repository.createTask(task);
     repository.addEvent(event);
@@ -92,6 +103,7 @@ describe("InMemoryTasksRepository", () => {
     repository.setTaskSource(taskSource);
     repository.setPatchLifecycle(patchLifecycle);
     repository.setCommandRun(commandRun);
+    repository.setPreviewSession(previewSession);
     repository.updateTask({
       ...task,
       status: "completed",
@@ -131,6 +143,8 @@ describe("InMemoryTasksRepository", () => {
     expect(repository.getTaskSource(task.id)).toEqual(taskSource);
     expect(repository.getPatchLifecycle(task.id)).toEqual(patchLifecycle);
     expect(repository.listCommandRuns(task.id)).toEqual([commandRun]);
+    expect(repository.getPreviewSessionByTaskId(task.id)).toEqual(previewSession);
+    expect(repository.getActivePreviewSessionByWorkspaceId("workspace_1")).toEqual(previewSession);
   });
 
   it("returns empty event, artifact, approval, audit, and command-run collections for known tasks without records", () => {
@@ -152,6 +166,8 @@ describe("InMemoryTasksRepository", () => {
     expect(repository.getTaskSource("task_empty")).toBeUndefined();
     expect(repository.getPatchLifecycle("task_empty")).toBeUndefined();
     expect(repository.listCommandRuns("task_empty")).toEqual([]);
+    expect(repository.getPreviewSessionByTaskId("task_empty")).toBeUndefined();
+    expect(repository.getActivePreviewSessionByWorkspaceId("workspace_1")).toBeUndefined();
   });
 
   it("starts with no registered workspaces or runner sessions", () => {

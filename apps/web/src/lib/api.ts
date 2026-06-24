@@ -6,6 +6,7 @@ import type {
   CommandRun,
   ContextSnapshot,
   PatchLifecycle,
+  PreviewSession,
   Task,
   TaskSource,
   Workspace,
@@ -85,6 +86,28 @@ export class AgentFlowApiClient {
 
   async getCommandRuns(taskId: string): Promise<CommandRun[]> {
     return this.request<CommandRun[]>(`/tasks/${taskId}/command-runs`, { cache: "no-store" });
+  }
+
+  async getPreviewSession(taskId: string): Promise<PreviewSession | null> {
+    return this.request<PreviewSession | null>(`/tasks/${taskId}/preview`, { cache: "no-store" });
+  }
+
+  async startPreview(taskId: string): Promise<PreviewSession> {
+    return this.request<PreviewSession>(`/tasks/${taskId}/preview/start`, {
+      method: "POST",
+    });
+  }
+
+  async stopPreview(taskId: string): Promise<PreviewSession | null> {
+    return this.request<PreviewSession | null>(`/tasks/${taskId}/preview/stop`, {
+      method: "POST",
+    });
+  }
+
+  async restartPreview(taskId: string): Promise<PreviewSession> {
+    return this.request<PreviewSession>(`/tasks/${taskId}/preview/restart`, {
+      method: "POST",
+    });
   }
 
   streamUrl(taskId: string): string {

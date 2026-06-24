@@ -1,5 +1,6 @@
 import type {
   RunnerPatchOperationResponse,
+  RunnerPreviewResponse,
   RunnerReadResponse,
   RunnerScanResponse,
 } from "@agent-flow/shared";
@@ -69,6 +70,62 @@ export class RunnerContextClient {
       workspaceRoot: input.workspaceRoot,
       command: input.command,
     });
+  }
+
+  async startPreview(input: {
+    controlBaseUrl: string;
+    controlToken: string;
+    workspaceRoot: string;
+  }): Promise<RunnerPreviewResponse> {
+    return this.postJson<RunnerPreviewResponse>(
+      `${trimTrailingSlash(input.controlBaseUrl)}/preview/start`,
+      input.controlToken,
+      {
+        workspaceRoot: input.workspaceRoot,
+      },
+    );
+  }
+
+  async stopPreview(input: {
+    controlBaseUrl: string;
+    controlToken: string;
+    workspaceRoot: string;
+  }): Promise<RunnerPreviewResponse> {
+    return this.postJson<RunnerPreviewResponse>(
+      `${trimTrailingSlash(input.controlBaseUrl)}/preview/stop`,
+      input.controlToken,
+      {
+        workspaceRoot: input.workspaceRoot,
+      },
+    );
+  }
+
+  async restartPreview(input: {
+    controlBaseUrl: string;
+    controlToken: string;
+    workspaceRoot: string;
+  }): Promise<RunnerPreviewResponse> {
+    return this.postJson<RunnerPreviewResponse>(
+      `${trimTrailingSlash(input.controlBaseUrl)}/preview/restart`,
+      input.controlToken,
+      {
+        workspaceRoot: input.workspaceRoot,
+      },
+    );
+  }
+
+  async getPreviewState(input: {
+    controlBaseUrl: string;
+    controlToken: string;
+    workspaceRoot: string;
+  }): Promise<RunnerPreviewResponse> {
+    return this.postJson<RunnerPreviewResponse>(
+      `${trimTrailingSlash(input.controlBaseUrl)}/preview/status`,
+      input.controlToken,
+      {
+        workspaceRoot: input.workspaceRoot,
+      },
+    );
   }
 
   private async postJson<T>(url: string, token: string, body: unknown): Promise<T> {

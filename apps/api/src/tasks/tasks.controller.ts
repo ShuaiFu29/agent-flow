@@ -9,6 +9,7 @@ import type {
   CommandRun,
   ContextSnapshot,
   PatchLifecycle,
+  PreviewSession,
   Task,
   TaskSource,
 } from "@agent-flow/shared";
@@ -76,6 +77,26 @@ export class TasksController {
   @Get(":taskId/command-runs")
   listCommandRuns(@Param("taskId") taskId: string): Promise<CommandRun[]> {
     return this.tasksService.listCommandRuns(taskId);
+  }
+
+  @Get(":taskId/preview")
+  getPreviewSession(@Param("taskId") taskId: string): Promise<PreviewSession | null> {
+    return this.tasksService.getPreviewSession(taskId);
+  }
+
+  @Post(":taskId/preview/start")
+  startPreview(@Param("taskId") taskId: string): Promise<PreviewSession> {
+    return this.tasksService.startPreview(taskId);
+  }
+
+  @Post(":taskId/preview/stop")
+  stopPreview(@Param("taskId") taskId: string): Promise<PreviewSession | null> {
+    return this.tasksService.stopPreview(taskId);
+  }
+
+  @Post(":taskId/preview/restart")
+  restartPreview(@Param("taskId") taskId: string): Promise<PreviewSession> {
+    return this.tasksService.restartPreview(taskId);
   }
 
   @Sse(":taskId/stream")

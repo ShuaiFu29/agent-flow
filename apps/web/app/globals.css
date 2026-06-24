@@ -127,7 +127,9 @@ button {
   border-radius: var(--radius);
   background: transparent;
   color: var(--muted);
+  cursor: pointer;
   font-size: 14px;
+  text-decoration: none;
   text-align: left;
 }
 
@@ -824,13 +826,37 @@ button {
 .content {
   padding: 24px 26px 30px;
   gap: 18px;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .grid-3 {
   display: grid;
   grid-template-columns: 1.35fr 0.8fr 0.8fr;
   gap: 14px;
+  height: 100%;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.grid-3 > .panel {
+  min-height: 0;
+}
+
+.task-list-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.task-table-scroll {
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.task-table-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .grid-2 {
@@ -1084,6 +1110,69 @@ tbody tr:hover {
   line-height: 1.5;
 }
 
+.preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.preview-screen {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: 72px minmax(0, 1fr);
+  background: #eef2f7;
+}
+
+.preview-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.preview-toolbar strong {
+  display: block;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.preview-toolbar span {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.preview-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.preview-frame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+
+.preview-empty-state {
+  display: grid;
+  place-items: center;
+  padding: 32px;
+}
+
+.preview-empty-state .choice {
+  width: min(560px, 100%);
+  background: #fff;
+}
+
 .file-list {
   display: grid;
   gap: 7px;
@@ -1153,6 +1242,19 @@ tbody tr:hover {
     overflow: visible;
   }
 
+  .grid-3 {
+    height: auto;
+    align-items: start;
+  }
+
+  .task-list-panel {
+    display: block;
+  }
+
+  .task-table-scroll {
+    overflow: visible;
+  }
+
   .grid-3,
   .grid-2,
   .grid-main-side,
@@ -1178,5 +1280,15 @@ tbody tr:hover {
 
   .preview-tile .btn {
     grid-column: 1 / -1;
+  }
+
+  .preview-screen {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .preview-toolbar {
+    padding: 14px 16px;
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

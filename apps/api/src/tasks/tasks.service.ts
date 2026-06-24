@@ -15,6 +15,8 @@ import type {
   PatchApplyResult,
   PatchLifecycle,
   PatchPrecheck,
+  PreviewSession,
+  RunnerPreviewState,
   Task,
   TaskSource,
   Workspace,
@@ -30,7 +32,10 @@ type CreateTaskInput = {
   prompt: string;
 };
 
-type RunnerExecutionClient = Pick<RunnerContextClient, "applyPatch" | "precheckPatch" | "runCommand">;
+type RunnerExecutionClient = Pick<
+  RunnerContextClient,
+  "applyPatch" | "precheckPatch" | "runCommand" | "startPreview" | "stopPreview" | "restartPreview" | "getPreviewState"
+>;
 
 @Injectable()
 export class TasksService {
@@ -167,6 +172,196 @@ export class TasksService {
     await this.getTask(taskId);
 
     return await this.tasksRepository.listCommandRuns(taskId);
+  }
+
+  async getPreviewSession(taskId: string): Promise<PreviewSession | null> {
+    const task = await this.getTask(taskId);
+    const persistedPreview = await this.tasksRepository.getPreviewSessionByTaskId(taskId);
+    if (!persistedPreview) {
+      return null;
+    }
+
+    if (!isActivePreviewStatus(persistedPreview.status)) {
+      return persistedPreview;
+    }
+
+    try {
+      const workspace = await this.getWorkspaceForTask(task);
+      const session = await this.getRunnerSessionForTask(task);
+      const response = await this.runnerExecutionClient.getPreviewState({
+        controlBaseUrl: session.controlBaseUrl,
+        controlToken: session.controlToken,
+        workspaceRoot: workspace.rootPath,
+      });
+
+      if (response.preview) {
+        return await this.persistPreviewState(task, workspace, response.preview, persistedPreview.id);
+      }
+
+      return await this.markPreviewStopped(task, workspace, persistedPreview);
+    } catch {
+      return persistedPreview;
+    }
+  }
+
+  async startPreview(taskId: string): Promise<PreviewSession> {
+    const task = await this.getTask(taskId);
+    const workspace = await this.getWorkspaceForTask(task);
+    const session = await this.getRunnerSessionForTask(task);
+    const persistedPreview = await this.tasksRepository.getPreviewSessionByTaskId(task.id);
+
+    await this.releaseActiveWorkspacePreview(workspace.id, task.id);
+
+    try {
+      const response = await this.runnerExecutionClient.startPreview({
+        controlBaseUrl: session.controlBaseUrl,
+        controlToken: session.controlToken,
+        workspaceRoot: workspace.rootPath,
+      });
+      const preview = response.preview
+        ? await this.persistPreviewState(task, workspace, response.preview, persistedPreview?.id)
+        : await this.markPreviewFailure(
+            task,
+            workspace,
+            persistedPreview,
+            response.message || "Preview start failed without a returned preview state.",
+          );
+
+      await this.addAuditEvent({
+        taskId: task.id,
+        workspaceId: workspace.id,
+        source: "runner",
+        action: response.ok ? "preview_started" : "preview_failed",
+        message: response.message,
+        metadata: {
+          previewStatus: preview.status,
+          url: preview.url,
+          port: preview.port,
+          command: preview.command,
+        },
+      });
+
+      return preview;
+    } catch (error) {
+      const failedPreview = await this.markPreviewFailure(
+        task,
+        workspace,
+        persistedPreview,
+        error instanceof Error ? error.message : "Preview start request failed.",
+      );
+      await this.addAuditEvent({
+        taskId: task.id,
+        workspaceId: workspace.id,
+        source: "runner",
+        action: "preview_failed",
+        message: failedPreview.failureMessage ?? "Preview start request failed.",
+        metadata: {
+          previewStatus: failedPreview.status,
+          url: failedPreview.url,
+          port: failedPreview.port,
+          command: failedPreview.command,
+        },
+      });
+
+      return failedPreview;
+    }
+  }
+
+  async stopPreview(taskId: string): Promise<PreviewSession | null> {
+    const task = await this.getTask(taskId);
+    const workspace = await this.getWorkspaceForTask(task);
+    const session = await this.getRunnerSessionForTask(task);
+    const persistedPreview = await this.tasksRepository.getPreviewSessionByTaskId(task.id);
+
+    if (!persistedPreview) {
+      return null;
+    }
+
+    const response = await this.runnerExecutionClient.stopPreview({
+      controlBaseUrl: session.controlBaseUrl,
+      controlToken: session.controlToken,
+      workspaceRoot: workspace.rootPath,
+    });
+    const preview = response.preview
+      ? await this.persistPreviewState(task, workspace, response.preview, persistedPreview.id)
+      : await this.markPreviewStopped(task, workspace, persistedPreview);
+
+    await this.addAuditEvent({
+      taskId: task.id,
+      workspaceId: workspace.id,
+      source: "runner",
+      action: "preview_stopped",
+      message: response.message,
+      metadata: {
+        previewStatus: preview.status,
+        url: preview.url,
+        port: preview.port,
+        command: preview.command,
+      },
+    });
+
+    return preview;
+  }
+
+  async restartPreview(taskId: string): Promise<PreviewSession> {
+    const task = await this.getTask(taskId);
+    const workspace = await this.getWorkspaceForTask(task);
+    const session = await this.getRunnerSessionForTask(task);
+    const persistedPreview = await this.tasksRepository.getPreviewSessionByTaskId(task.id);
+
+    try {
+      const response = await this.runnerExecutionClient.restartPreview({
+        controlBaseUrl: session.controlBaseUrl,
+        controlToken: session.controlToken,
+        workspaceRoot: workspace.rootPath,
+      });
+      const preview = response.preview
+        ? await this.persistPreviewState(task, workspace, response.preview, persistedPreview?.id)
+        : await this.markPreviewFailure(
+            task,
+            workspace,
+            persistedPreview,
+            response.message || "Preview restart failed without a returned preview state.",
+          );
+
+      await this.addAuditEvent({
+        taskId: task.id,
+        workspaceId: workspace.id,
+        source: "runner",
+        action: response.ok ? "preview_restarted" : "preview_failed",
+        message: response.message,
+        metadata: {
+          previewStatus: preview.status,
+          url: preview.url,
+          port: preview.port,
+          command: preview.command,
+        },
+      });
+
+      return preview;
+    } catch (error) {
+      const failedPreview = await this.markPreviewFailure(
+        task,
+        workspace,
+        persistedPreview,
+        error instanceof Error ? error.message : "Preview restart request failed.",
+      );
+      await this.addAuditEvent({
+        taskId: task.id,
+        workspaceId: workspace.id,
+        source: "runner",
+        action: "preview_failed",
+        message: failedPreview.failureMessage ?? "Preview restart request failed.",
+        metadata: {
+          previewStatus: failedPreview.status,
+          url: failedPreview.url,
+          port: failedPreview.port,
+          command: failedPreview.command,
+        },
+      });
+
+      return failedPreview;
+    }
   }
 
   async approveApproval(approvalId: string): Promise<Approval> {
@@ -621,6 +816,94 @@ export class TasksService {
     await this.failTask(task, workspace, `${command} exited with code ${result.exitCode}`);
   }
 
+  private async persistPreviewState(
+    task: Task,
+    workspace: Workspace,
+    previewState: RunnerPreviewState,
+    existingId?: string,
+  ): Promise<PreviewSession> {
+    return await this.tasksRepository.setPreviewSession({
+      id: existingId ?? createId("preview"),
+      taskId: task.id,
+      workspaceId: workspace.id,
+      status: previewState.status,
+      url: previewState.url,
+      port: previewState.port,
+      command: previewState.command,
+      startedAt: previewState.startedAt,
+      stoppedAt: previewState.stoppedAt,
+      lastHeartbeatAt: previewState.lastHeartbeatAt,
+      failureMessage: previewState.failureMessage,
+    });
+  }
+
+  private async markPreviewFailure(
+    task: Task,
+    workspace: Workspace,
+    existingPreview: PreviewSession | undefined,
+    failureMessage: string,
+  ): Promise<PreviewSession> {
+    const now = new Date().toISOString();
+    return await this.tasksRepository.setPreviewSession({
+      id: existingPreview?.id ?? createId("preview"),
+      taskId: task.id,
+      workspaceId: workspace.id,
+      status: "failed",
+      url: existingPreview?.url ?? "",
+      port: existingPreview?.port ?? 0,
+      command: existingPreview?.command ?? "unknown",
+      startedAt: existingPreview?.startedAt ?? now,
+      stoppedAt: existingPreview?.stoppedAt,
+      lastHeartbeatAt: now,
+      failureMessage,
+    });
+  }
+
+  private async markPreviewStopped(
+    task: Task,
+    workspace: Workspace,
+    existingPreview: PreviewSession,
+  ): Promise<PreviewSession> {
+    const now = new Date().toISOString();
+    return await this.tasksRepository.setPreviewSession({
+      ...existingPreview,
+      taskId: task.id,
+      workspaceId: workspace.id,
+      status: "stopped",
+      stoppedAt: existingPreview.stoppedAt ?? now,
+      lastHeartbeatAt: now,
+      failureMessage: undefined,
+    });
+  }
+
+  private async releaseActiveWorkspacePreview(workspaceId: string, nextTaskId: string): Promise<void> {
+    const activePreview = await this.tasksRepository.getActivePreviewSessionByWorkspaceId(workspaceId);
+    if (!activePreview || activePreview.taskId === nextTaskId) {
+      return;
+    }
+
+    const stoppedAt = new Date().toISOString();
+    await this.tasksRepository.setPreviewSession({
+      ...activePreview,
+      status: "stopped",
+      stoppedAt,
+      lastHeartbeatAt: stoppedAt,
+      failureMessage: undefined,
+    });
+    await this.addAuditEvent({
+      taskId: activePreview.taskId,
+      workspaceId,
+      source: "system",
+      action: "preview_stopped",
+      message: `Preview was replaced by task ${nextTaskId}.`,
+      metadata: {
+        replacedByTaskId: nextTaskId,
+        url: activePreview.url,
+        port: activePreview.port,
+      },
+    });
+  }
+
   private async completeAgentStep(
     taskId: string,
     agentRole: AgentRole,
@@ -938,4 +1221,6 @@ function createId(prefix: string): string {
   return `${prefix}_${randomUUID()}`;
 }
 
-
+function isActivePreviewStatus(status: PreviewSession["status"]): boolean {
+  return status === "starting" || status === "running";
+}

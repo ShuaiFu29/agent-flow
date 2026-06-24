@@ -8,6 +8,7 @@ import type {
   CommandRun,
   ContextSnapshot,
   PatchLifecycle,
+  PreviewSession,
   RunnerCapability,
   RunnerProtocolVersion,
   RunnerSession,
@@ -63,6 +64,9 @@ export interface TasksRepository {
   getPatchLifecycle(taskId: string): MaybePromise<PatchLifecycle | undefined>;
   setCommandRun(commandRun: CommandRun): MaybePromise<CommandRun>;
   listCommandRuns(taskId: string): MaybePromise<CommandRun[]>;
+  setPreviewSession(previewSession: PreviewSession): MaybePromise<PreviewSession>;
+  getPreviewSessionByTaskId(taskId: string): MaybePromise<PreviewSession | undefined>;
+  getActivePreviewSessionByWorkspaceId(workspaceId: string): MaybePromise<PreviewSession | undefined>;
   registerRunner(input: RegisterRunnerInput): MaybePromise<{ workspace: Workspace; session: RunnerSession }>;
   heartbeatRunner(input: HeartbeatRunnerInput): MaybePromise<{ workspace: Workspace; session: RunnerSession } | undefined>;
   listWorkspaces(): MaybePromise<Workspace[]>;
@@ -80,6 +84,7 @@ export class InMemoryTasksRepository implements TasksRepository {
   private readonly contextSnapshots = new Map<string, ContextSnapshot>();
   private readonly patchLifecycles = new Map<string, PatchLifecycle>();
   private readonly commandRuns = new Map<string, CommandRun[]>();
+  private readonly previewSessions = new Map<string, PreviewSession>();
   private readonly auditEvents: AuditEvent[] = [];
   private readonly workspaces = new Map<string, Workspace>();
   private readonly runnerSessions = new Map<string, RunnerSession>();
@@ -231,6 +236,26 @@ export class InMemoryTasksRepository implements TasksRepository {
 
   listCommandRuns(taskId: string): CommandRun[] {
     return this.commandRuns.get(taskId) ?? [];
+  }
+
+  setPreviewSession(previewSession: PreviewSession): PreviewSession {
+    this.previewSessions.set(previewSession.taskId, previewSession);
+
+    return previewSession;
+  }
+
+  getPreviewSessionByTaskId(taskId: string): PreviewSession | undefined {
+    return this.previewSessions.get(taskId);
+  }
+
+  getActivePreviewSessionByWorkspaceId(workspaceId: string): PreviewSession | undefined {
+    return Array.from(this.previewSessions.values())
+      .filter(
+        (previewSession) =>
+          previewSession.workspaceId === workspaceId &&
+          (previewSession.status === "starting" || previewSession.status === "running"),
+      )
+      .sort((left, right) => right.startedAt.localeCompare(left.startedAt))[0];
   }
 
   registerRunner(input: RegisterRunnerInput): { workspace: Workspace; session: RunnerSession } {

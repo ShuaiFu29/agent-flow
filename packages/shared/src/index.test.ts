@@ -27,6 +27,8 @@ import {
   type RunnerLifecycleEvent,
   type RunnerPatchOperationResponse,
   type RunnerPatchPrecheckRequest,
+  type RunnerPreviewRequest,
+  type RunnerPreviewResponse,
   type RunnerRegisterResponse,
   type RunnerResult,
   type RunnerScanRequest,
@@ -250,6 +252,29 @@ describe("shared domain exports", () => {
     expect(commandRun.status).toBe("passed");
     expect(previewSession.port).toBe(3001);
     expect(auditEvent.source).toBe("runner");
+  });
+
+  it("supports preview runner protocol shapes", () => {
+    const previewRequest: RunnerPreviewRequest = {
+      workspaceRoot: "D:\\project\\demo-app",
+    };
+    const previewResponse: RunnerPreviewResponse = {
+      ok: true,
+      message: "Preview is running.",
+      preview: {
+        status: "running",
+        url: "http://127.0.0.1:3100",
+        port: 3100,
+        command: "pnpm dev --hostname 127.0.0.1 --port 3100",
+        startedAt: "2026-06-24T00:00:00.000Z",
+        lastHeartbeatAt: "2026-06-24T00:00:05.000Z",
+      },
+    };
+
+    expect(previewRequest.workspaceRoot).toContain("demo-app");
+    expect(previewResponse.ok).toBe(true);
+    expect(previewResponse.preview?.status).toBe("running");
+    expect(previewResponse.preview?.port).toBe(3100);
   });
 
   it("supports workspace scan and read protocol shapes", () => {

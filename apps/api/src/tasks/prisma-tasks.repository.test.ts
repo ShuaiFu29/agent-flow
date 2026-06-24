@@ -135,6 +135,17 @@ describe("PrismaTasksRepository", () => {
         completedAt: "2026-06-24T00:00:12.000Z",
         outputArtifactId: "artifact_1",
       });
+      await repositoryA.setPreviewSession({
+        id: "preview_1",
+        taskId: "task_1",
+        workspaceId: workspace.id,
+        status: "running",
+        url: "http://127.0.0.1:3100",
+        port: 3100,
+        command: "pnpm dev -- --port 3100 --hostname 127.0.0.1",
+        startedAt: "2026-06-24T00:00:12.500Z",
+        lastHeartbeatAt: "2026-06-24T00:00:13.000Z",
+      });
 
       await prismaA.$disconnect();
 
@@ -207,6 +218,21 @@ describe("PrismaTasksRepository", () => {
           outputArtifactId: "artifact_1",
         }),
       ]);
+      await expect(repositoryB.getPreviewSessionByTaskId("task_1")).resolves.toEqual(
+        expect.objectContaining({
+          id: "preview_1",
+          workspaceId: workspace.id,
+          status: "running",
+          port: 3100,
+        }),
+      );
+      await expect(repositoryB.getActivePreviewSessionByWorkspaceId(workspace.id)).resolves.toEqual(
+        expect.objectContaining({
+          id: "preview_1",
+          taskId: "task_1",
+          url: "http://127.0.0.1:3100",
+        }),
+      );
       await expect(repositoryB.listWorkspaces()).resolves.toEqual([
         expect.objectContaining({
           id: workspace.id,

@@ -21,6 +21,11 @@ function ensureColumnUpgrades(database: DatabaseSync): void {
     { name: "stdout", definition: `"stdout" TEXT` },
     { name: "stderr", definition: `"stderr" TEXT` },
   ]);
+  ensureMissingColumns(database, "PreviewSession", [
+    { name: "stoppedAt", definition: `"stoppedAt" DATETIME` },
+    { name: "lastHeartbeatAt", definition: `"lastHeartbeatAt" DATETIME` },
+    { name: "failureMessage", definition: `"failureMessage" TEXT` },
+  ]);
 }
 
 function ensureMissingColumns(
@@ -212,6 +217,26 @@ CREATE TABLE IF NOT EXISTS "CommandRun" (
 
 CREATE INDEX IF NOT EXISTS "CommandRun_taskId_createdAt_idx" ON "CommandRun"("taskId", "createdAt");
 CREATE INDEX IF NOT EXISTS "CommandRun_taskId_status_idx" ON "CommandRun"("taskId", "status");
+
+CREATE TABLE IF NOT EXISTS "PreviewSession" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "taskId" TEXT NOT NULL,
+  "workspaceId" TEXT NOT NULL,
+  "status" TEXT NOT NULL,
+  "url" TEXT NOT NULL,
+  "port" INTEGER NOT NULL,
+  "command" TEXT NOT NULL,
+  "startedAt" DATETIME NOT NULL,
+  "stoppedAt" DATETIME,
+  "lastHeartbeatAt" DATETIME,
+  "failureMessage" TEXT,
+  CONSTRAINT "PreviewSession_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES "Task" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT "PreviewSession_workspaceId_fkey" FOREIGN KEY ("workspaceId") REFERENCES "Workspace" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "PreviewSession_taskId_key" ON "PreviewSession"("taskId");
+CREATE INDEX IF NOT EXISTS "PreviewSession_workspaceId_status_idx" ON "PreviewSession"("workspaceId", "status");
+CREATE INDEX IF NOT EXISTS "PreviewSession_startedAt_idx" ON "PreviewSession"("startedAt");
 
 CREATE TABLE IF NOT EXISTS "AuditEvent" (
   "id" TEXT NOT NULL PRIMARY KEY,

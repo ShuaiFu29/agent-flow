@@ -9,6 +9,7 @@ import type {
   CommandRun,
   ContextSnapshot,
   PatchLifecycle,
+  PreviewSession,
   RunnerSession,
   Task,
   TaskSource,
@@ -325,6 +326,60 @@ export class PrismaTasksRepository implements TasksRepository {
     });
 
     return commandRuns.map(mapCommandRun);
+  }
+
+  async setPreviewSession(previewSession: PreviewSession): Promise<PreviewSession> {
+    const record = await this.prisma.previewSession.upsert({
+      where: { taskId: previewSession.taskId },
+      update: {
+        workspaceId: previewSession.workspaceId,
+        status: previewSession.status,
+        url: previewSession.url,
+        port: previewSession.port,
+        command: previewSession.command,
+        startedAt: new Date(previewSession.startedAt),
+        stoppedAt: previewSession.stoppedAt ? new Date(previewSession.stoppedAt) : null,
+        lastHeartbeatAt: previewSession.lastHeartbeatAt ? new Date(previewSession.lastHeartbeatAt) : null,
+        failureMessage: previewSession.failureMessage ?? null,
+      },
+      create: {
+        id: previewSession.id,
+        taskId: previewSession.taskId,
+        workspaceId: previewSession.workspaceId,
+        status: previewSession.status,
+        url: previewSession.url,
+        port: previewSession.port,
+        command: previewSession.command,
+        startedAt: new Date(previewSession.startedAt),
+        stoppedAt: previewSession.stoppedAt ? new Date(previewSession.stoppedAt) : null,
+        lastHeartbeatAt: previewSession.lastHeartbeatAt ? new Date(previewSession.lastHeartbeatAt) : null,
+        failureMessage: previewSession.failureMessage ?? null,
+      },
+    });
+
+    return mapPreviewSession(record);
+  }
+
+  async getPreviewSessionByTaskId(taskId: string): Promise<PreviewSession | undefined> {
+    const previewSession = await this.prisma.previewSession.findUnique({
+      where: { taskId },
+    });
+
+    return previewSession ? mapPreviewSession(previewSession) : undefined;
+  }
+
+  async getActivePreviewSessionByWorkspaceId(workspaceId: string): Promise<PreviewSession | undefined> {
+    const previewSession = await this.prisma.previewSession.findFirst({
+      where: {
+        workspaceId,
+        status: {
+          in: ["starting", "running"],
+        },
+      },
+      orderBy: [{ startedAt: "desc" }, { id: "desc" }],
+    });
+
+    return previewSession ? mapPreviewSession(previewSession) : undefined;
   }
 
   async registerRunner(input: RegisterRunnerInput): Promise<{ workspace: Workspace; session: RunnerSession }> {
@@ -691,6 +746,34 @@ function mapCommandRun(commandRun: {
     startedAt: commandRun.startedAt?.toISOString(),
     completedAt: commandRun.completedAt?.toISOString(),
     outputArtifactId: commandRun.outputArtifactId ?? undefined,
+  };
+}
+
+function mapPreviewSession(previewSession: {
+  id: string;
+  taskId: string;
+  workspaceId: string;
+  status: string;
+  url: string;
+  port: number;
+  command: string;
+  startedAt: Date;
+  stoppedAt: Date | null;
+  lastHeartbeatAt: Date | null;
+  failureMessage: string | null;
+}): PreviewSession {
+  return {
+    id: previewSession.id,
+    taskId: previewSession.taskId,
+    workspaceId: previewSession.workspaceId,
+    status: previewSession.status as PreviewSession["status"],
+    url: previewSession.url,
+    port: previewSession.port,
+    command: previewSession.command,
+    startedAt: previewSession.startedAt.toISOString(),
+    stoppedAt: previewSession.stoppedAt?.toISOString(),
+    lastHeartbeatAt: previewSession.lastHeartbeatAt?.toISOString(),
+    failureMessage: previewSession.failureMessage ?? undefined,
   };
 }
 

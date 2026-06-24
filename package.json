@@ -3,7 +3,7 @@
   "private": true,
   "packageManager": "pnpm@10.14.0",
   "scripts": {
-    "build": "turbo build",
+    "build": "turbo build --filter=!@agent-flow/web && pnpm --filter @agent-flow/web build",
     "dev": "turbo dev",
     "dev:api": "pnpm --filter @agent-flow/api dev",
     "dev:runner": "pnpm --filter @agent-flow/runner dev",

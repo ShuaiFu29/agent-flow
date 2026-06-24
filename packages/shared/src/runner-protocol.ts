@@ -1,4 +1,4 @@
-import type { PatchFailureCode, PatchPrecheckIssue } from "./domain";
+import type { PatchFailureCode, PatchPrecheckIssue, PreviewSessionStatus } from "./domain";
 
 export const RUNNER_ALLOWED_COMMANDS = [
   "pnpm test",
@@ -18,7 +18,8 @@ export type RunnerCapability =
   | "scan_workspace"
   | "read_files"
   | "apply_patch"
-  | "run_command";
+  | "run_command"
+  | "preview_server";
 
 export type RunnerStatus = "online" | "offline" | "busy";
 
@@ -131,6 +132,27 @@ export type RunnerPatchOperationResponse = {
   changedFiles: string[];
   failureCode?: PatchFailureCode;
   issues: PatchPrecheckIssue[];
+};
+
+export type RunnerPreviewRequest = {
+  workspaceRoot: string;
+};
+
+export type RunnerPreviewState = {
+  status: PreviewSessionStatus;
+  url: string;
+  port: number;
+  command: string;
+  startedAt: string;
+  stoppedAt?: string;
+  lastHeartbeatAt?: string;
+  failureMessage?: string;
+};
+
+export type RunnerPreviewResponse = {
+  ok: boolean;
+  message: string;
+  preview?: RunnerPreviewState;
 };
 
 export type RunnerCommand =
