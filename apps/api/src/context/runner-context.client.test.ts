@@ -6,7 +6,7 @@ describe("RunnerContextClient", () => {
     vi.unstubAllGlobals();
   });
 
-  it("calls runner scan, read, patch, and command endpoints with bearer auth", async () => {
+  it("calls runner scan, read, patch precheck, patch apply, and command endpoints with bearer auth", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -27,8 +27,17 @@ describe("RunnerContextClient", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           ok: true,
+          message: "Patch precheck passed.",
+          changedFiles: ["apps/api/src/tasks/tasks.service.ts"],
+          issues: [],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ok: true,
           message: "Patch applied.",
           changedFiles: ["apps/api/src/tasks/tasks.service.ts"],
+          issues: [],
         }),
       )
       .mockResolvedValueOnce(
@@ -54,6 +63,12 @@ describe("RunnerContextClient", () => {
       controlToken: "token_123",
       workspaceRoot: "D:\\project\\agent\\agent-flow",
       paths: ["package.json"],
+    });
+    const precheck = await client.precheckPatch({
+      controlBaseUrl: "http://127.0.0.1:43123",
+      controlToken: "token_123",
+      workspaceRoot: "D:\\project\\agent\\agent-flow",
+      patch: "diff --git a/a.ts b/a.ts",
     });
     const patch = await client.applyPatch({
       controlBaseUrl: "http://127.0.0.1:43123",
@@ -91,7 +106,7 @@ describe("RunnerContextClient", () => {
         paths: ["package.json"],
       }),
     });
-    expect(fetchMock).toHaveBeenNthCalledWith(3, "http://127.0.0.1:43123/patch/apply", {
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "http://127.0.0.1:43123/patch/precheck", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -102,7 +117,18 @@ describe("RunnerContextClient", () => {
         patch: "diff --git a/a.ts b/a.ts",
       }),
     });
-    expect(fetchMock).toHaveBeenNthCalledWith(4, "http://127.0.0.1:43123/commands/run", {
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "http://127.0.0.1:43123/patch/apply", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer token_123",
+      },
+      body: JSON.stringify({
+        workspaceRoot: "D:\\project\\agent\\agent-flow",
+        patch: "diff --git a/a.ts b/a.ts",
+      }),
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(5, "http://127.0.0.1:43123/commands/run", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -115,6 +141,7 @@ describe("RunnerContextClient", () => {
     });
     expect(scan.branch).toBe("feat/v1-workspace-runner");
     expect(read.files[0]?.content).toContain("agent-flow");
+    expect(precheck.ok).toBe(true);
     expect(patch.ok).toBe(true);
     expect(command.exitCode).toBe(0);
   });

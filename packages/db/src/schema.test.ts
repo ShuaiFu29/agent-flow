@@ -1,8 +1,10 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import { createPrismaClient, prisma } from "./index";
+import { createPrismaClient, ensureSqliteSchema, prisma } from "./index";
 
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const schemaPath = join(packageRoot, "prisma", "schema.prisma");
@@ -17,13 +19,16 @@ describe("Prisma schema", () => {
     expect(schema).toContain("model Approval");
   });
 
-  it("defines the V1 durable workspace, runner, source, and audit models", () => {
+  it("defines the V1 durable workspace, runner, source, audit, context snapshot, and patch lifecycle models", () => {
     const schema = readFileSync(schemaPath, "utf8");
 
     expect(schema).toContain("model Workspace");
     expect(schema).toContain("model RunnerSession");
     expect(schema).toContain("model TaskSource");
     expect(schema).toContain("model AuditEvent");
+    expect(schema).toContain("model ContextSnapshot");
+    expect(schema).toContain("model PatchLifecycle");
+    expect(schema).toContain("model CommandRun");
   });
 
   it("links events, artifacts, and approvals to tasks", () => {
@@ -41,6 +46,9 @@ describe("Prisma schema", () => {
     expect(schema).toMatch(/workspaceId\s+String\?/);
     expect(schema).toMatch(/workspace\s+Workspace\?/);
     expect(schema).toMatch(/taskSource\s+TaskSource\?/);
+    expect(schema).toMatch(/contextSnapshot\s+ContextSnapshot\?/);
+    expect(schema).toMatch(/patchLifecycle\s+PatchLifecycle\?/);
+    expect(schema).toMatch(/commandRuns\s+CommandRun\[\]/);
     expect(schema).toMatch(/runnerSessions\s+RunnerSession\[\]/);
     expect(schema).toMatch(/auditEvents\s+AuditEvent\[\]/);
   });
@@ -49,5 +57,48 @@ describe("Prisma schema", () => {
 describe("database client exports", () => {
   it("exports a prisma singleton and a factory", () => {
     expect(prisma).toBe(createPrismaClient());
+  });
+});
+
+describe("SQLite bootstrap upgrades", () => {
+  it("adds newly required CommandRun columns to an existing database", () => {
+    const root = mkdtempSync(join(tmpdir(), "agent-flow-db-upgrade-"));
+    const databasePath = join(root, "agent-flow.db");
+    const database = new DatabaseSync(databasePath);
+
+    try {
+      database.exec(`
+        CREATE TABLE "CommandRun" (
+          "id" TEXT NOT NULL PRIMARY KEY,
+          "taskId" TEXT NOT NULL,
+          "command" TEXT NOT NULL,
+          "status" TEXT NOT NULL,
+          "exitCode" INTEGER,
+          "startedAt" DATETIME,
+          "completedAt" DATETIME,
+          "outputArtifactId" TEXT,
+          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" DATETIME NOT NULL
+        );
+      `);
+    } finally {
+      database.close();
+    }
+
+    ensureSqliteSchema(`file:${databasePath.replaceAll("\\", "/")}`);
+
+    const upgradedDatabase = new DatabaseSync(databasePath);
+    try {
+      const columns = upgradedDatabase
+        .prepare(`PRAGMA table_info("CommandRun")`)
+        .all() as Array<{ name: string }>;
+      const columnNames = columns.map((column) => column.name);
+
+      expect(columnNames).toContain("approvalId");
+      expect(columnNames).toContain("stdout");
+      expect(columnNames).toContain("stderr");
+    } finally {
+      upgradedDatabase.close();
+    }
   });
 });

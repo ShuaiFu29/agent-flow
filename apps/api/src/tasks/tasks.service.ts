@@ -10,6 +10,11 @@ import type {
   Artifact,
   ArtifactKind,
   AuditEvent,
+  CommandRun,
+  ContextSnapshot,
+  PatchApplyResult,
+  PatchLifecycle,
+  PatchPrecheck,
   Task,
   TaskSource,
   Workspace,
@@ -25,7 +30,7 @@ type CreateTaskInput = {
   prompt: string;
 };
 
-type RunnerExecutionClient = Pick<RunnerContextClient, "applyPatch" | "runCommand">;
+type RunnerExecutionClient = Pick<RunnerContextClient, "applyPatch" | "precheckPatch" | "runCommand">;
 
 @Injectable()
 export class TasksService {
@@ -76,14 +81,16 @@ export class TasksService {
     });
 
     try {
-      return await this.runContextBackedWorkflow(task, workspace);
+      return await this.hydrateTaskStage(await this.runContextBackedWorkflow(task, workspace));
     } catch (error) {
-      return await this.failTask(task, workspace, error instanceof Error ? error.message : "Unknown task failure");
+      return await this.hydrateTaskStage(
+        await this.failTask(task, workspace, error instanceof Error ? error.message : "Unknown task failure"),
+      );
     }
   }
 
   async listTasks(): Promise<Task[]> {
-    return await this.tasksRepository.listTasks();
+    return await Promise.all((await this.tasksRepository.listTasks()).map((task) => this.hydrateTaskStage(task)));
   }
 
   async getTask(taskId: string): Promise<Task> {
@@ -92,7 +99,7 @@ export class TasksService {
       throw new NotFoundException(`Task ${taskId} was not found.`);
     }
 
-    return task;
+    return await this.hydrateTaskStage(task);
   }
 
   async listEvents(taskId: string): Promise<AgentFlowEvent[]> {
@@ -132,6 +139,34 @@ export class TasksService {
     }
 
     return source;
+  }
+
+  async getContextSnapshot(taskId: string): Promise<ContextSnapshot> {
+    await this.getTask(taskId);
+    const snapshot = await this.tasksRepository.getContextSnapshot(taskId);
+
+    if (!snapshot) {
+      throw new NotFoundException(`Context snapshot for ${taskId} was not found.`);
+    }
+
+    return snapshot;
+  }
+
+  async getPatchLifecycle(taskId: string): Promise<PatchLifecycle> {
+    await this.getTask(taskId);
+    const lifecycle = await this.tasksRepository.getPatchLifecycle(taskId);
+
+    if (!lifecycle) {
+      throw new NotFoundException(`Patch lifecycle for ${taskId} was not found.`);
+    }
+
+    return lifecycle;
+  }
+
+  async listCommandRuns(taskId: string): Promise<CommandRun[]> {
+    await this.getTask(taskId);
+
+    return await this.tasksRepository.listCommandRuns(taskId);
   }
 
   async approveApproval(approvalId: string): Promise<Approval> {
@@ -189,6 +224,15 @@ export class TasksService {
       message: `用户拒绝 ${approval.kind}`,
       metadata: { approvalId: approval.id, kind: approval.kind },
     });
+    if (approval.kind === "apply_patch") {
+      await this.updatePatchLifecycle(task.id, (currentLifecycle) => ({
+        ...currentLifecycle,
+        approvalId: approval.id,
+        status: "rejected",
+        updatedAt: new Date().toISOString(),
+      }));
+    }
+
     await this.updateFinalReport(
       task.id,
       [
@@ -214,7 +258,14 @@ export class TasksService {
   }
 
   private async runContextBackedWorkflow(task: Task, workspace: Workspace): Promise<Task> {
-    const context = await this.workspaceContextService.collect(workspace);
+    const context = await this.workspaceContextService.collect(workspace, task.prompt);
+    await this.tasksRepository.setContextSnapshot({
+      id: createId("snapshot"),
+      taskId: task.id,
+      selectedFiles: context.selectedFiles,
+      rejectedFiles: context.rejectedFiles,
+      createdAt: new Date().toISOString(),
+    });
     const artifacts = this.artifactGenerator.generate({
       taskTitle: task.title,
       prompt: task.prompt,
@@ -238,6 +289,9 @@ export class TasksService {
 
     await this.completeAgentStep(task.id, "planner", artifacts.plan);
     const patchArtifact = await this.completeAgentStep(task.id, "coder", artifacts.patch);
+    if (!patchArtifact) {
+      throw new Error("Patch artifact was not generated.");
+    }
     await this.addAuditEvent({
       taskId: task.id,
       workspaceId: workspace.id,
@@ -250,16 +304,79 @@ export class TasksService {
     const testLogArtifact = await this.completeAgentStep(task.id, "tester", artifacts.testLog);
     await this.completeAgentStep(task.id, "summary", artifacts.finalReport);
 
-    await this.addApproval({
+    const session = await this.getRunnerSessionForTask(task);
+    const precheckResult = await this.runnerExecutionClient.precheckPatch({
+      controlBaseUrl: session.controlBaseUrl,
+      controlToken: session.controlToken,
+      workspaceRoot: workspace.rootPath,
+      patch: patchArtifact.content,
+    });
+    const checkedAt = new Date().toISOString();
+    const patchPrecheck = this.toPatchPrecheck(precheckResult, checkedAt);
+
+    if (!precheckResult.ok) {
+      await this.tasksRepository.setPatchLifecycle({
+        id: createId("patch_lifecycle"),
+        taskId: task.id,
+        patchArtifactId: patchArtifact.id,
+        status: "precheck_failed",
+        precheck: patchPrecheck,
+        createdAt: checkedAt,
+        updatedAt: checkedAt,
+      });
+      await this.addAuditEvent({
+        taskId: task.id,
+        workspaceId: workspace.id,
+        source: "runner",
+        action: "patch_precheck_failed",
+        message: precheckResult.message,
+        metadata: {
+          changedFiles: precheckResult.changedFiles,
+          failureCode: precheckResult.failureCode,
+          issues: precheckResult.issues,
+        },
+      });
+
+      return await this.failTask(task, workspace, precheckResult.message);
+    }
+
+    await this.addAuditEvent({
+      taskId: task.id,
+      workspaceId: workspace.id,
+      source: "runner",
+      action: "patch_precheck_passed",
+      message: precheckResult.message,
+      metadata: {
+        changedFiles: precheckResult.changedFiles,
+      },
+    });
+
+    const patchApproval = await this.addApproval({
       taskId: task.id,
       kind: "apply_patch",
       status: "pending",
       payload: {
-        artifactId: patchArtifact?.id,
+        artifactId: patchArtifact.id,
         artifactKind: "patch",
         artifactTitle: artifacts.patch.title,
         workspaceId: workspace.id,
       },
+    });
+    const lifecycleCreatedAt = new Date().toISOString();
+    await this.tasksRepository.setPatchLifecycle({
+      id: createId("patch_lifecycle"),
+      taskId: task.id,
+      patchArtifactId: patchArtifact.id,
+      approvalId: patchApproval.id,
+      status: "awaiting_approval",
+      precheck: patchPrecheck,
+      applyResult: {
+        status: "not_started",
+        changedFiles: precheckResult.changedFiles,
+        message: "Patch has not been applied yet.",
+      },
+      createdAt: lifecycleCreatedAt,
+      updatedAt: lifecycleCreatedAt,
     });
     await this.addEvent(task.id, "approval_requested", "等待用户审批 patch");
     await this.addAuditEvent({
@@ -271,7 +388,7 @@ export class TasksService {
       metadata: { kind: "apply_patch" },
     });
 
-    await this.addApproval({
+    const commandApproval = await this.addApproval({
       taskId: task.id,
       kind: "run_command",
       status: "pending",
@@ -280,6 +397,17 @@ export class TasksService {
         command: "pnpm test",
         workspaceId: workspace.id,
       },
+    });
+    const commandQueuedAt = new Date().toISOString();
+    await this.tasksRepository.setCommandRun({
+      id: createId("command_run"),
+      taskId: task.id,
+      approvalId: commandApproval.id,
+      command: "pnpm test",
+      status: "queued",
+      outputArtifactId: testLogArtifact?.id,
+      createdAt: commandQueuedAt,
+      updatedAt: commandQueuedAt,
     });
     await this.addEvent(task.id, "approval_requested", "等待用户审批 pnpm test");
     await this.addAuditEvent({
@@ -314,12 +442,70 @@ export class TasksService {
       throw new Error("Patch artifact was not found for approval.");
     }
 
-    const result = await this.runnerExecutionClient.applyPatch({
-      controlBaseUrl: session.controlBaseUrl,
-      controlToken: session.controlToken,
-      workspaceRoot: workspace.rootPath,
-      patch: patchArtifact.content,
-    });
+    let result;
+    try {
+      result = await this.runnerExecutionClient.applyPatch({
+        controlBaseUrl: session.controlBaseUrl,
+        controlToken: session.controlToken,
+        workspaceRoot: workspace.rootPath,
+        patch: patchArtifact.content,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Patch apply request failed.";
+      await this.persistPatchApplyResult(
+        task.id,
+        approval.id,
+        {
+          status: "failed",
+          changedFiles: [],
+          message,
+          appliedAt: new Date().toISOString(),
+        },
+        "apply_failed",
+      );
+      throw error;
+    }
+
+    if (!result.ok) {
+      await this.persistPatchApplyResult(
+        task.id,
+        approval.id,
+        {
+          status: "failed",
+          changedFiles: result.changedFiles,
+          message: result.message,
+          appliedAt: new Date().toISOString(),
+          failureCode: result.failureCode,
+        },
+        "apply_failed",
+      );
+      await this.addAuditEvent({
+        taskId: task.id,
+        workspaceId: workspace.id,
+        source: "runner",
+        action: "patch_apply_failed",
+        message: result.message,
+        metadata: {
+          changedFiles: result.changedFiles,
+          failureCode: result.failureCode,
+          issues: result.issues,
+        },
+      });
+      await this.failTask(task, workspace, result.message);
+      return;
+    }
+
+    await this.persistPatchApplyResult(
+      task.id,
+      approval.id,
+      {
+        status: "applied",
+        changedFiles: result.changedFiles,
+        message: result.message,
+        appliedAt: new Date().toISOString(),
+      },
+      "applied",
+    );
 
     await this.addAuditEvent({
       taskId: task.id,
@@ -352,6 +538,22 @@ export class TasksService {
       throw new Error("Command approval payload is missing the command.");
     }
 
+    const existingRun = await this.findCommandRun(task.id, approval.id);
+    const runningAt = new Date().toISOString();
+    const runningRun = await this.tasksRepository.setCommandRun({
+      id: existingRun?.id ?? createId("command_run"),
+      taskId: task.id,
+      approvalId: approval.id,
+      command,
+      status: "running",
+      outputArtifactId:
+        existingRun?.outputArtifactId ??
+        (typeof approval.payload.artifactId === "string" ? approval.payload.artifactId : undefined),
+      createdAt: existingRun?.createdAt ?? runningAt,
+      updatedAt: runningAt,
+      startedAt: existingRun?.startedAt ?? runningAt,
+    });
+
     const result = await this.runnerExecutionClient.runCommand({
       controlBaseUrl: session.controlBaseUrl,
       controlToken: session.controlToken,
@@ -360,6 +562,16 @@ export class TasksService {
     });
 
     await this.updateTestLog(task.id, command, result.exitCode, result.stdout, result.stderr);
+    const completedAt = new Date().toISOString();
+    await this.tasksRepository.setCommandRun({
+      ...runningRun,
+      status: result.exitCode === 0 ? "passed" : "failed",
+      exitCode: result.exitCode,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      completedAt,
+      updatedAt: completedAt,
+    });
     await this.addAuditEvent({
       taskId: task.id,
       workspaceId: workspace.id,
@@ -552,6 +764,10 @@ export class TasksService {
     return (await this.tasksRepository.listArtifacts(taskId)).find((artifact) => artifact.id === artifactId);
   }
 
+  private async findCommandRun(taskId: string, approvalId: string): Promise<CommandRun | undefined> {
+    return (await this.tasksRepository.listCommandRuns(taskId)).find((commandRun) => commandRun.approvalId === approvalId);
+  }
+
   private async getApprovalOrThrow(approvalId: string): Promise<Approval> {
     const approval = await this.tasksRepository.getApproval(approvalId);
     if (!approval) {
@@ -587,6 +803,46 @@ export class TasksService {
       controlBaseUrl: session.controlBaseUrl,
       controlToken: session.controlToken,
     };
+  }
+
+  private toPatchPrecheck(
+    result: Awaited<ReturnType<RunnerContextClient["precheckPatch"]>>,
+    checkedAt: string,
+  ): PatchPrecheck {
+    return {
+      status: result.ok ? "passed" : "failed",
+      changedFiles: result.changedFiles,
+      message: result.message,
+      issues: result.issues,
+      checkedAt,
+    };
+  }
+
+  private async updatePatchLifecycle(
+    taskId: string,
+    update: (currentLifecycle: PatchLifecycle) => PatchLifecycle,
+  ): Promise<PatchLifecycle> {
+    const currentLifecycle = await this.tasksRepository.getPatchLifecycle(taskId);
+    if (!currentLifecycle) {
+      throw new Error(`Patch lifecycle for task ${taskId} was not found.`);
+    }
+
+    return await this.tasksRepository.setPatchLifecycle(update(currentLifecycle));
+  }
+
+  private async persistPatchApplyResult(
+    taskId: string,
+    approvalId: string,
+    applyResult: PatchApplyResult,
+    status: PatchLifecycle["status"],
+  ): Promise<void> {
+    await this.updatePatchLifecycle(taskId, (currentLifecycle) => ({
+      ...currentLifecycle,
+      approvalId,
+      status,
+      applyResult,
+      updatedAt: new Date().toISOString(),
+    }));
   }
 
   private async touchTask(task: Task, status: Task["status"]): Promise<void> {
@@ -628,6 +884,43 @@ export class TasksService {
     return failedTask;
   }
 
+  private async hydrateTaskStage(task: Task): Promise<Task> {
+    if (task.status === "completed") {
+      return {
+        ...task,
+        stage: "completed",
+      };
+    }
+
+    if (task.status === "failed") {
+      return {
+        ...task,
+        stage: "failure_review",
+      };
+    }
+
+    const patchLifecycle = await this.tasksRepository.getPatchLifecycle(task.id);
+    if (patchLifecycle?.status === "awaiting_approval") {
+      return {
+        ...task,
+        stage: "patch_approval",
+      };
+    }
+
+    const commandRuns = await this.tasksRepository.listCommandRuns(task.id);
+    if (commandRuns.length > 0) {
+      return {
+        ...task,
+        stage: "verification",
+      };
+    }
+
+    return {
+      ...task,
+      stage: "artifact_generation",
+    };
+  }
+
   private async getDefaultWorkspace(): Promise<Workspace> {
     const workspace = (await this.runnerService.listWorkspaces()).find(
       (currentWorkspace) => currentWorkspace.status === "online" || currentWorkspace.status === "indexing",
@@ -644,3 +937,5 @@ export class TasksService {
 function createId(prefix: string): string {
   return `${prefix}_${randomUUID()}`;
 }
+
+

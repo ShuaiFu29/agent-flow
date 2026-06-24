@@ -81,6 +81,60 @@ describe("PrismaTasksRepository", () => {
         content: "Persist this task.",
         createdAt: "2026-06-24T00:00:04.000Z",
       });
+      await repositoryA.setContextSnapshot({
+        id: "snapshot_1",
+        taskId: "task_1",
+        selectedFiles: [
+          {
+            path: "apps/web/app/login/page.tsx",
+            reason: "命中上游优先文件",
+            relevance: "high",
+          },
+        ],
+        rejectedFiles: [
+          {
+            path: "README.md",
+            reason: "当前轮次未进入上下文上限。",
+          },
+        ],
+        createdAt: "2026-06-24T00:00:04.500Z",
+      });
+      await repositoryA.setPatchLifecycle({
+        id: "patch_1",
+        taskId: "task_1",
+        patchArtifactId: "artifact_1",
+        approvalId: "approval_1",
+        status: "awaiting_approval",
+        precheck: {
+          status: "passed",
+          changedFiles: ["apps/api/src/tasks/tasks.service.ts"],
+          message: "Patch precheck passed.",
+          issues: [],
+          checkedAt: "2026-06-24T00:00:04.750Z",
+        },
+        applyResult: {
+          status: "not_started",
+          changedFiles: ["apps/api/src/tasks/tasks.service.ts"],
+          message: "Patch has not been applied yet.",
+        },
+        createdAt: "2026-06-24T00:00:04.750Z",
+        updatedAt: "2026-06-24T00:00:04.750Z",
+      });
+      await repositoryA.setCommandRun({
+        id: "command_1",
+        taskId: "task_1",
+        approvalId: "approval_1",
+        command: "pnpm test",
+        status: "passed",
+        exitCode: 0,
+        stdout: "task test ok\n",
+        stderr: "",
+        createdAt: "2026-06-24T00:00:05.000Z",
+        updatedAt: "2026-06-24T00:00:12.000Z",
+        startedAt: "2026-06-24T00:00:05.000Z",
+        completedAt: "2026-06-24T00:00:12.000Z",
+        outputArtifactId: "artifact_1",
+      });
 
       await prismaA.$disconnect();
 
@@ -118,6 +172,41 @@ describe("PrismaTasksRepository", () => {
           title: "Manual request",
         }),
       );
+      await expect(repositoryB.getContextSnapshot("task_1")).resolves.toEqual(
+        expect.objectContaining({
+          id: "snapshot_1",
+          selectedFiles: [
+            expect.objectContaining({
+              path: "apps/web/app/login/page.tsx",
+              relevance: "high",
+            }),
+          ],
+        }),
+      );
+      await expect(repositoryB.getPatchLifecycle("task_1")).resolves.toEqual(
+        expect.objectContaining({
+          id: "patch_1",
+          status: "awaiting_approval",
+          precheck: expect.objectContaining({
+            status: "passed",
+          }),
+          applyResult: expect.objectContaining({
+            status: "not_started",
+          }),
+        }),
+      );
+      await expect(repositoryB.listCommandRuns("task_1")).resolves.toEqual([
+        expect.objectContaining({
+          id: "command_1",
+          approvalId: "approval_1",
+          command: "pnpm test",
+          status: "passed",
+          exitCode: 0,
+          stdout: "task test ok\n",
+          stderr: "",
+          outputArtifactId: "artifact_1",
+        }),
+      ]);
       await expect(repositoryB.listWorkspaces()).resolves.toEqual([
         expect.objectContaining({
           id: workspace.id,

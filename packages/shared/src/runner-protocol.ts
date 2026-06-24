@@ -1,3 +1,5 @@
+import type { PatchFailureCode, PatchPrecheckIssue } from "./domain";
+
 export const RUNNER_ALLOWED_COMMANDS = [
   "pnpm test",
   "npm test",
@@ -116,6 +118,19 @@ export type RunnerReadRequest = {
 export type RunnerReadResponse = {
   workspaceRoot: string;
   files: Array<{ path: string; content: string }>;
+};
+
+export type RunnerPatchPrecheckRequest = {
+  workspaceRoot: string;
+  patch: string;
+};
+
+export type RunnerPatchOperationResponse = {
+  ok: boolean;
+  message: string;
+  changedFiles: string[];
+  failureCode?: PatchFailureCode;
+  issues: PatchPrecheckIssue[];
 };
 
 export type RunnerCommand =

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateRunnerCommand } from "./command-policy";
+import { createCommandExecutionPlan, evaluateRunnerCommand } from "./command-policy";
 
 describe("runner command policy", () => {
   it("allows only exact V0 runner commands", () => {
@@ -29,5 +29,14 @@ describe("runner command policy", () => {
     });
     expect(evaluateRunnerCommand("pnpm exec sh")).toMatchObject({ allowed: false });
     expect(evaluateRunnerCommand("")).toMatchObject({ allowed: false });
+  });
+
+  it("builds a reusable execution plan for an allowed command", () => {
+    expect(createCommandExecutionPlan("pnpm test")).toMatchObject({
+      allowed: true,
+      command: "pnpm test",
+      args: expect.any(Array),
+      file: expect.any(String),
+    });
   });
 });

@@ -1,5 +1,12 @@
 import { Inject, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
-import type { RunnerReadResponse, RunnerScanResponse, Workspace, WorkspaceFileSummary } from "@agent-flow/shared";
+import { selectContextFiles } from "@agent-flow/context";
+import type {
+  ContextSnapshot,
+  RunnerReadResponse,
+  RunnerScanResponse,
+  Workspace,
+  WorkspaceFileSummary,
+} from "@agent-flow/shared";
 import { RunnerService } from "../runner/runner.service";
 import { RunnerContextClient } from "./runner-context.client";
 
@@ -10,6 +17,8 @@ export type WorkspaceContext = {
   topLevelEntries: string[];
   keyFiles: WorkspaceFileSummary[];
   stackHints: string[];
+  selectedFiles: ContextSnapshot["selectedFiles"];
+  rejectedFiles: ContextSnapshot["rejectedFiles"];
   files: RunnerReadResponse["files"];
 };
 
@@ -24,7 +33,7 @@ export class WorkspaceContextService {
     private readonly runnerContextClient: WorkspaceContextReader,
   ) {}
 
-  async collect(workspace: Workspace): Promise<WorkspaceContext> {
+  async collect(workspace: Workspace, prompt: string): Promise<WorkspaceContext> {
     const session = await this.runnerService.getOnlineSessionForWorkspace(workspace.id);
 
     if (!session) {
@@ -38,7 +47,17 @@ export class WorkspaceContextService {
       maxEntries: 200,
       maxDepth: 4,
     });
-    const pathsToRead = scan.keyFiles.slice(0, 6).map((file) => file.path);
+    const selection = selectContextFiles({
+      prompt,
+      preferredPaths: scan.keyFiles.slice(0, 2).map((file) => file.path),
+      candidates: scan.keyFiles.map((file) => ({
+        path: file.path,
+        reason: file.reason,
+        size: file.size,
+      })),
+      maxSelected: Math.min(3, Math.max(1, scan.keyFiles.length)),
+    });
+    const pathsToRead = selection.filesToRead;
     const read = pathsToRead.length
       ? await this.runnerContextClient.readFiles({
           controlBaseUrl: session.controlBaseUrl,
@@ -51,7 +70,7 @@ export class WorkspaceContextService {
           files: [],
         };
 
-    return buildWorkspaceContext(workspace, scan, read);
+    return buildWorkspaceContext(workspace, scan, read, selection.selectedFiles, selection.rejectedFiles);
   }
 }
 
@@ -59,6 +78,8 @@ export function buildWorkspaceContext(
   workspace: Workspace,
   scan: RunnerScanResponse,
   read: RunnerReadResponse,
+  selectedFiles: ContextSnapshot["selectedFiles"],
+  rejectedFiles: ContextSnapshot["rejectedFiles"],
 ): WorkspaceContext {
   if (scan.workspaceRoot !== workspace.rootPath || read.workspaceRoot !== workspace.rootPath) {
     throw new ServiceUnavailableException("Runner returned a mismatched workspace root.");
@@ -71,6 +92,8 @@ export function buildWorkspaceContext(
     topLevelEntries: scan.topLevelEntries,
     keyFiles: scan.keyFiles,
     stackHints: scan.stackHints,
+    selectedFiles,
+    rejectedFiles,
     files: read.files,
   };
 }

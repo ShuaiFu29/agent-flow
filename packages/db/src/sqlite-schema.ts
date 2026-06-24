@@ -9,8 +9,37 @@ export function ensureSqliteSchema(databaseUrl: string): void {
   const database = new DatabaseSync(databasePath);
   try {
     database.exec(SQLITE_SCHEMA);
+    ensureColumnUpgrades(database);
   } finally {
     database.close();
+  }
+}
+
+function ensureColumnUpgrades(database: DatabaseSync): void {
+  ensureMissingColumns(database, "CommandRun", [
+    { name: "approvalId", definition: `"approvalId" TEXT` },
+    { name: "stdout", definition: `"stdout" TEXT` },
+    { name: "stderr", definition: `"stderr" TEXT` },
+  ]);
+}
+
+function ensureMissingColumns(
+  database: DatabaseSync,
+  tableName: string,
+  columns: Array<{ name: string; definition: string }>,
+): void {
+  const existingColumns = new Set(
+    (
+      database.prepare(`PRAGMA table_info("${tableName}")`).all() as Array<{
+        name: string;
+      }>
+    ).map((column) => column.name),
+  );
+
+  for (const column of columns) {
+    if (!existingColumns.has(column.name)) {
+      database.exec(`ALTER TABLE "${tableName}" ADD COLUMN ${column.definition}`);
+    }
   }
 }
 
@@ -137,6 +166,52 @@ CREATE TABLE IF NOT EXISTS "TaskSource" (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS "TaskSource_taskId_key" ON "TaskSource"("taskId");
+
+CREATE TABLE IF NOT EXISTS "ContextSnapshot" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "taskId" TEXT NOT NULL,
+  "selectedFiles" TEXT NOT NULL,
+  "rejectedFiles" TEXT NOT NULL,
+  "createdAt" DATETIME NOT NULL,
+  CONSTRAINT "ContextSnapshot_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES "Task" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "ContextSnapshot_taskId_key" ON "ContextSnapshot"("taskId");
+
+CREATE TABLE IF NOT EXISTS "PatchLifecycle" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "taskId" TEXT NOT NULL,
+  "patchArtifactId" TEXT NOT NULL,
+  "approvalId" TEXT,
+  "status" TEXT NOT NULL,
+  "precheck" TEXT NOT NULL,
+  "applyResult" TEXT,
+  "createdAt" DATETIME NOT NULL,
+  "updatedAt" DATETIME NOT NULL,
+  CONSTRAINT "PatchLifecycle_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES "Task" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "PatchLifecycle_taskId_key" ON "PatchLifecycle"("taskId");
+
+CREATE TABLE IF NOT EXISTS "CommandRun" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "taskId" TEXT NOT NULL,
+  "approvalId" TEXT,
+  "command" TEXT NOT NULL,
+  "status" TEXT NOT NULL,
+  "exitCode" INTEGER,
+  "stdout" TEXT,
+  "stderr" TEXT,
+  "startedAt" DATETIME,
+  "completedAt" DATETIME,
+  "outputArtifactId" TEXT,
+  "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" DATETIME NOT NULL,
+  CONSTRAINT "CommandRun_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES "Task" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS "CommandRun_taskId_createdAt_idx" ON "CommandRun"("taskId", "createdAt");
+CREATE INDEX IF NOT EXISTS "CommandRun_taskId_status_idx" ON "CommandRun"("taskId", "status");
 
 CREATE TABLE IF NOT EXISTS "AuditEvent" (
   "id" TEXT NOT NULL PRIMARY KEY,

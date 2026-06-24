@@ -21,11 +21,13 @@ describe("tasks API", () => {
   let workspaceRoot = "";
   let databaseUrl = "";
   let previousDatabaseUrl: string | undefined;
+  let forcePatchPrecheckFailure = false;
   const controlToken = "token_123";
   const tempRoots: string[] = [];
 
   beforeEach(async () => {
     previousDatabaseUrl = process.env.DATABASE_URL;
+    forcePatchPrecheckFailure = false;
     const databaseRoot = await fs.mkdtemp(path.join(os.tmpdir(), "agent-flow-api-db-"));
     tempRoots.push(databaseRoot);
     databaseUrl = toSqliteDatabaseUrl(path.join(databaseRoot, "agent-flow.db"));
@@ -61,6 +63,8 @@ describe("tasks API", () => {
                 keyFiles: [
                   { path: "package.json", size: 180, reason: "Workspace manifest" },
                   { path: "src/task-target.ts", size: 128, reason: "Primary task target" },
+                  { path: "README.md", size: 92, reason: "Project overview" },
+                  { path: "src/secondary.ts", size: 64, reason: "Secondary module" },
                 ],
                 stackHints: ["pnpm", "typescript"],
               }),
@@ -84,6 +88,27 @@ describe("tasks API", () => {
           if (req.method === "POST" && req.url === "/patch/apply") {
             const patch = String(body.patch ?? "");
             const result = await applyPatchWithGit(workspaceRoot, patch);
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify(result));
+            return;
+          }
+
+          if (req.method === "POST" && req.url === "/patch/precheck") {
+            const patch = String(body.patch ?? "");
+            const result = forcePatchPrecheckFailure
+              ? {
+                  ok: false,
+                  message: "Patch precheck failed for test fixture.",
+                  changedFiles: ["src/task-target.ts"],
+                  failureCode: "patch_check_failed",
+                  issues: [
+                    {
+                      code: "patch_check_failed",
+                      message: "Patch precheck failed for test fixture.",
+                    },
+                  ],
+                }
+              : await precheckPatchWithGit(workspaceRoot, patch);
             res.writeHead(200, { "Content-Type": "application/json" });
             res.end(JSON.stringify(result));
             return;
@@ -171,6 +196,7 @@ describe("tasks API", () => {
       title: "Add email login flow",
       prompt: "Create a login page with email and password support.",
       status: "waiting_for_approval",
+      stage: "patch_approval",
     });
 
     const taskId = createResponse.body.id as string;
@@ -214,6 +240,33 @@ describe("tasks API", () => {
         }),
       ]),
     );
+
+    const snapshotResponse = await request(getHttpServer())
+      .get(`/tasks/${taskId}/context`)
+      .expect(200);
+    expect(snapshotResponse.body).toMatchObject({
+      taskId,
+      selectedFiles: expect.arrayContaining([
+        expect.objectContaining({
+          path: "src/task-target.ts",
+        }),
+      ]),
+    });
+    expect(snapshotResponse.body.rejectedFiles.length).toBeGreaterThan(0);
+
+    const patchLifecycleResponse = await request(getHttpServer())
+      .get(`/tasks/${taskId}/patch-lifecycle`)
+      .expect(200);
+    expect(patchLifecycleResponse.body).toMatchObject({
+      taskId,
+      status: "awaiting_approval",
+      precheck: expect.objectContaining({
+        status: "passed",
+      }),
+      applyResult: expect.objectContaining({
+        status: "not_started",
+      }),
+    });
 
     const approvalsResponse = await request(getHttpServer())
       .get(`/tasks/${taskId}/approvals`)
@@ -260,13 +313,27 @@ describe("tasks API", () => {
       "agent-flow planned change",
     );
 
+    const patchLifecycleAfterApply = await request(getHttpServer())
+      .get(`/tasks/${taskId}/patch-lifecycle`)
+      .expect(200);
+    expect(patchLifecycleAfterApply.body).toMatchObject({
+      taskId,
+      status: "applied",
+      approvalId: patchApproval.id,
+      applyResult: expect.objectContaining({
+        status: "applied",
+      }),
+    });
+
     const taskAfterPatch = await request(getHttpServer()).get(`/tasks/${taskId}`).expect(200);
     expect(taskAfterPatch.body.status).toBe("waiting_for_approval");
+    expect(taskAfterPatch.body.stage).toBe("verification");
 
     await request(getHttpServer()).post(`/approvals/${commandApproval.id}/approve`).expect(201);
 
     const completedTask = await request(getHttpServer()).get(`/tasks/${taskId}`).expect(200);
     expect(completedTask.body.status).toBe("completed");
+    expect(completedTask.body.stage).toBe("completed");
 
     const artifactsResponse = await request(getHttpServer()).get(`/tasks/${taskId}/artifacts`).expect(200);
     expect(artifactsResponse.body).toEqual(
@@ -301,6 +368,105 @@ describe("tasks API", () => {
     );
   });
 
+  it("persists command-run lifecycle from queued to passed after command approval", async () => {
+    await registerRunner();
+
+    const createResponse = await request(getHttpServer())
+      .post("/tasks")
+      .send({
+        title: "Track command lifecycle",
+        prompt: "Apply the patch and keep the verification lifecycle structured.",
+      })
+      .expect(201);
+    const taskId = createResponse.body.id as string;
+
+    const approvalsResponse = await request(getHttpServer())
+      .get(`/tasks/${taskId}/approvals`)
+      .expect(200);
+    const patchApproval = approvalsResponse.body.find((approval: { kind: string }) => approval.kind === "apply_patch");
+    const commandApproval = approvalsResponse.body.find((approval: { kind: string }) => approval.kind === "run_command");
+
+    expect(patchApproval).toBeDefined();
+    expect(commandApproval).toBeDefined();
+
+    const queuedRunsResponse = await request(getHttpServer())
+      .get(`/tasks/${taskId}/command-runs`)
+      .expect(200);
+    expect(queuedRunsResponse.body).toEqual([
+      expect.objectContaining({
+        taskId,
+        approvalId: commandApproval.id,
+        command: "pnpm test",
+        status: "queued",
+      }),
+    ]);
+
+    await request(getHttpServer()).post(`/approvals/${patchApproval.id}/approve`).expect(201);
+    await request(getHttpServer()).post(`/approvals/${commandApproval.id}/approve`).expect(201);
+
+    const completedRunsResponse = await request(getHttpServer())
+      .get(`/tasks/${taskId}/command-runs`)
+      .expect(200);
+    expect(completedRunsResponse.body).toEqual([
+      expect.objectContaining({
+        taskId,
+        approvalId: commandApproval.id,
+        command: "pnpm test",
+        status: "passed",
+        exitCode: 0,
+        stdout: expect.stringContaining("task test ok"),
+        stderr: "",
+      }),
+    ]);
+  });
+
+  it("fails the task before approval when patch precheck fails and persists the lifecycle", async () => {
+    await registerRunner();
+    forcePatchPrecheckFailure = true;
+
+    const createResponse = await request(getHttpServer())
+      .post("/tasks")
+      .send({
+        title: "Precheck failure",
+        prompt: "Create a patch that should be rejected by precheck.",
+      })
+      .expect(201);
+    const taskId = createResponse.body.id as string;
+
+    expect(createResponse.body.status).toBe("failed");
+
+    const approvalsResponse = await request(getHttpServer())
+      .get(`/tasks/${taskId}/approvals`)
+      .expect(200);
+    expect(approvalsResponse.body).toEqual([]);
+
+    const patchLifecycleResponse = await request(getHttpServer())
+      .get(`/tasks/${taskId}/patch-lifecycle`)
+      .expect(200);
+    expect(patchLifecycleResponse.body).toMatchObject({
+      taskId,
+      status: "precheck_failed",
+      precheck: expect.objectContaining({
+        status: "failed",
+        issues: [
+          expect.objectContaining({
+            code: "patch_check_failed",
+          }),
+        ],
+      }),
+    });
+
+    const auditResponse = await request(getHttpServer()).get(`/tasks/${taskId}/audit`).expect(200);
+    expect(auditResponse.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "patch_precheck_failed",
+          source: "runner",
+        }),
+      ]),
+    );
+  });
+
   it("marks the task failed when an approved command exits non-zero", async () => {
     await registerRunner();
 
@@ -323,6 +489,20 @@ describe("tasks API", () => {
 
     const failedTask = await request(getHttpServer()).get(`/tasks/${taskId}`).expect(200);
     expect(failedTask.body.status).toBe("failed");
+    expect(failedTask.body.stage).toBe("failure_review");
+
+    const commandRunsResponse = await request(getHttpServer())
+      .get(`/tasks/${taskId}/command-runs`)
+      .expect(200);
+    expect(commandRunsResponse.body).toEqual([
+      expect.objectContaining({
+        taskId,
+        command: "pnpm test",
+        status: "failed",
+        exitCode: 2,
+        stderr: expect.stringContaining("task test failed"),
+      }),
+    ]);
 
     const artifactsResponse = await request(getHttpServer()).get(`/tasks/${taskId}/artifacts`).expect(200);
     expect(artifactsResponse.body).toEqual(
@@ -485,6 +665,12 @@ describe("tasks API", () => {
       kind: "manual",
       title: "Restart persistence",
     });
+
+    const snapshotResponse = await request(getHttpServer()).get(`/tasks/${taskId}/context`).expect(200);
+    expect(snapshotResponse.body).toMatchObject({
+      taskId,
+      selectedFiles: expect.any(Array),
+    });
   });
 
   it("shows a persisted runner session as offline after restart when the heartbeat is stale", async () => {
@@ -586,6 +772,8 @@ describe("tasks API", () => {
 
     await fs.mkdir(path.join(root, "src"), { recursive: true });
     await fs.writeFile(path.join(root, "src/task-target.ts"), "export const taskTarget = 'ready';\n", "utf8");
+    await fs.writeFile(path.join(root, "src/secondary.ts"), "export const secondaryTarget = 'ready';\n", "utf8");
+    await fs.writeFile(path.join(root, "README.md"), "# agent-flow api fixture\n", "utf8");
     await fs.writeFile(
       path.join(root, "package.json"),
       JSON.stringify(
@@ -665,7 +853,13 @@ describe("tasks API", () => {
 async function applyPatchWithGit(
   workspaceRoot: string,
   patchContent: string,
-): Promise<{ ok: boolean; message: string; changedFiles: string[] }> {
+): Promise<{
+  ok: boolean;
+  message: string;
+  changedFiles: string[];
+  issues: Array<{ code: string; message: string }>;
+  failureCode?: string;
+}> {
   const patchDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-flow-api-patch-"));
   const patchPath = path.join(patchDir, "task.patch");
   try {
@@ -676,6 +870,47 @@ async function applyPatchWithGit(
       ok: true,
       message: "Patch applied.",
       changedFiles: extractPatchPaths(patchContent),
+      issues: [],
+    };
+  } finally {
+    await fs.rm(patchDir, { recursive: true, force: true });
+  }
+}
+
+async function precheckPatchWithGit(
+  workspaceRoot: string,
+  patchContent: string,
+): Promise<{
+  ok: boolean;
+  message: string;
+  changedFiles: string[];
+  issues: Array<{ code: string; message: string }>;
+  failureCode?: string;
+}> {
+  const patchDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-flow-api-patch-"));
+  const patchPath = path.join(patchDir, "task.patch");
+  try {
+    await fs.writeFile(patchPath, patchContent, "utf8");
+    await execFileAsync("git", ["apply", "--check", patchPath], { cwd: workspaceRoot });
+    return {
+      ok: true,
+      message: "Patch precheck passed.",
+      changedFiles: extractPatchPaths(patchContent),
+      issues: [],
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Patch precheck failed.";
+    return {
+      ok: false,
+      message,
+      changedFiles: extractPatchPaths(patchContent),
+      failureCode: "patch_check_failed",
+      issues: [
+        {
+          code: "patch_check_failed",
+          message,
+        },
+      ],
     };
   } finally {
     await fs.rm(patchDir, { recursive: true, force: true });

@@ -16,6 +16,24 @@ describe("ArtifactGenerator", () => {
         { path: "apps/web/src/components/dashboard.tsx", size: 4096, reason: "Primary operator console" },
       ],
       stackHints: ["pnpm", "typescript", "nestjs", "nextjs"],
+      selectedFiles: [
+        {
+          path: "apps/api/src/tasks/tasks.service.ts",
+          reason: "命中上游优先文件；Task orchestration entry",
+          relevance: "high",
+        },
+        {
+          path: "apps/web/src/components/dashboard.tsx",
+          reason: "Primary operator console",
+          relevance: "medium",
+        },
+      ],
+      rejectedFiles: [
+        {
+          path: "package.json",
+          reason: "当前轮次未进入上下文上限。",
+        },
+      ],
       files: [
         {
           path: "package.json",

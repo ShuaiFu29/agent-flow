@@ -1,7 +1,17 @@
 import { Body, Controller, Get, Inject, Param, Post, Sse } from "@nestjs/common";
 import type { MessageEvent } from "@nestjs/common";
 import type { Observable } from "rxjs";
-import type { AgentFlowEvent, Approval, Artifact, AuditEvent, Task, TaskSource } from "@agent-flow/shared";
+import type {
+  AgentFlowEvent,
+  Approval,
+  Artifact,
+  AuditEvent,
+  CommandRun,
+  ContextSnapshot,
+  PatchLifecycle,
+  Task,
+  TaskSource,
+} from "@agent-flow/shared";
 import { TasksService } from "./tasks.service";
 
 type CreateTaskBody = {
@@ -51,6 +61,21 @@ export class TasksController {
   @Get(":taskId/source")
   getTaskSource(@Param("taskId") taskId: string): Promise<TaskSource> {
     return this.tasksService.getTaskSource(taskId);
+  }
+
+  @Get(":taskId/context")
+  getContextSnapshot(@Param("taskId") taskId: string): Promise<ContextSnapshot> {
+    return this.tasksService.getContextSnapshot(taskId);
+  }
+
+  @Get(":taskId/patch-lifecycle")
+  getPatchLifecycle(@Param("taskId") taskId: string): Promise<PatchLifecycle> {
+    return this.tasksService.getPatchLifecycle(taskId);
+  }
+
+  @Get(":taskId/command-runs")
+  listCommandRuns(@Param("taskId") taskId: string): Promise<CommandRun[]> {
+    return this.tasksService.listCommandRuns(taskId);
   }
 
   @Sse(":taskId/stream")

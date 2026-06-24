@@ -44,12 +44,13 @@ describe("WorkspaceContextService", () => {
       throw new Error("workspace was not registered");
     }
 
-    const context = await service.collect(workspace);
+    const context = await service.collect(workspace, "Add email login flow");
 
     expect(context.branch).toBe("feat/v1-workspace-runner");
     expect(context.stackHints).toContain("nestjs");
     expect(context.keyFiles).toHaveLength(2);
     expect(context.files[0]?.path).toBe("package.json");
+    expect(context.selectedFiles.length).toBeGreaterThan(0);
   });
 
   it("throws a clear error when no online runner session can serve the workspace", async () => {
@@ -71,7 +72,7 @@ describe("WorkspaceContextService", () => {
         rootPath: "D:\\project\\missing",
         status: "online",
         runnerMode: "local",
-      }),
+      }, "Runner unavailable"),
     ).rejects.toThrow(/runner session/i);
   });
 });

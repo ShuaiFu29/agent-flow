@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   AGENT_ROLES,
   ARTIFACT_KINDS,
+  TASK_STAGES,
   TASK_STATUSES,
   isRunnerCommandAllowed,
   type AgentFlowEvent,
@@ -10,6 +11,9 @@ import {
   type AuditEvent,
   type CommandRun,
   type ContextSnapshot,
+  type PatchApplyResult,
+  type PatchLifecycle,
+  type PatchPrecheck,
   type PreviewSession,
   type TaskSource,
   type Task,
@@ -21,6 +25,8 @@ import {
   type RunnerReadRequest,
   type RunnerReadResponse,
   type RunnerLifecycleEvent,
+  type RunnerPatchOperationResponse,
+  type RunnerPatchPrecheckRequest,
   type RunnerRegisterResponse,
   type RunnerResult,
   type RunnerScanRequest,
@@ -45,6 +51,7 @@ describe("shared domain exports", () => {
       "summary",
     ]);
     expect(ARTIFACT_KINDS).toContain("patch");
+    expect(TASK_STAGES).toContain("verification");
   });
 
   it("allows only runner commands that the V0/V2 plan recognizes", () => {
@@ -61,6 +68,7 @@ describe("shared domain exports", () => {
       title: "Add login page",
       prompt: "Create an email login page",
       status: "running",
+      stage: "artifact_generation",
       createdAt: "2026-06-23T00:00:00.000Z",
       updatedAt: "2026-06-23T00:00:00.000Z",
     };
@@ -101,6 +109,7 @@ describe("shared domain exports", () => {
     };
 
     expect(task.status).toBe("running");
+    expect(task.stage).toBe("artifact_generation");
     expect(event.type).toBe("approval_rejected");
     expect(command.command).toBe("pnpm test");
     expect(result.exitCode).toBe(0);
@@ -282,5 +291,55 @@ describe("shared domain exports", () => {
     expect(scanResponse.stackHints).toContain("typescript");
     expect(readRequest.paths).toHaveLength(2);
     expect(readResponse.files[0]?.content).toContain("demo-app");
+  });
+
+  it("supports patch lifecycle and runner patch precheck shapes", () => {
+    const precheck: PatchPrecheck = {
+      status: "passed",
+      changedFiles: ["apps/api/src/tasks/tasks.service.ts"],
+      message: "Patch precheck passed.",
+      issues: [],
+      checkedAt: "2026-06-24T00:00:00.000Z",
+    };
+    const applyResult: PatchApplyResult = {
+      status: "applied",
+      changedFiles: ["apps/api/src/tasks/tasks.service.ts"],
+      message: "Patch applied successfully.",
+      appliedAt: "2026-06-24T00:00:05.000Z",
+    };
+    const lifecycle: PatchLifecycle = {
+      id: "patch_lifecycle_1",
+      taskId: "task_1",
+      patchArtifactId: "artifact_1",
+      approvalId: "approval_1",
+      status: "awaiting_approval",
+      precheck,
+      applyResult,
+      createdAt: "2026-06-24T00:00:00.000Z",
+      updatedAt: "2026-06-24T00:00:05.000Z",
+    };
+    const precheckRequest: RunnerPatchPrecheckRequest = {
+      workspaceRoot: "D:\\project\\demo-app",
+      patch: "diff --git a/a.ts b/a.ts",
+    };
+    const operationResponse: RunnerPatchOperationResponse = {
+      ok: false,
+      message: "Patch path is outside the workspace.",
+      changedFiles: [],
+      failureCode: "path_not_allowed",
+      issues: [
+        {
+          code: "path_not_allowed",
+          message: "Patch path is outside the workspace.",
+          path: "../outside.ts",
+        },
+      ],
+    };
+
+    expect(lifecycle.status).toBe("awaiting_approval");
+    expect(lifecycle.precheck.status).toBe("passed");
+    expect(precheckRequest.patch).toContain("diff --git");
+    expect(operationResponse.failureCode).toBe("path_not_allowed");
+    expect(operationResponse.issues[0]?.path).toBe("../outside.ts");
   });
 });

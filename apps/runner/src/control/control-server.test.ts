@@ -59,6 +59,30 @@ describe("runner control server", () => {
       expect(readResponse.status).toBe(200);
       expect(readBody.files[0]?.content).toContain("demo-app");
 
+      const precheckResponse = await fetch(`${server.baseUrl}/patch/precheck`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer token_123",
+        },
+        body: JSON.stringify({
+          workspaceRoot,
+          patch: [
+            "diff --git a/apps/web/app/page.tsx b/apps/web/app/page.tsx",
+            "--- a/apps/web/app/page.tsx",
+            "+++ b/apps/web/app/page.tsx",
+            "@@ -1 +1 @@",
+            "-export default function Page() { return <main />; }",
+            "+export default function Page() { return <section />; }",
+            "",
+          ].join("\n"),
+        }),
+      });
+      const precheckBody = await precheckResponse.json();
+
+      expect(precheckResponse.status).toBe(200);
+      expect(precheckBody.ok).toBe(true);
+
       const patchResponse = await fetch(`${server.baseUrl}/patch/apply`, {
         method: "POST",
         headers: {

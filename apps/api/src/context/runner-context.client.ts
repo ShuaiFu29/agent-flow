@@ -1,4 +1,5 @@
 import type {
+  RunnerPatchOperationResponse,
   RunnerReadResponse,
   RunnerScanResponse,
 } from "@agent-flow/shared";
@@ -35,12 +36,20 @@ export class RunnerContextClient {
     controlToken: string;
     workspaceRoot: string;
     patch: string;
-  }): Promise<{
-    ok: boolean;
-    message: string;
-    changedFiles: string[];
-  }> {
-    return this.postJson(`${trimTrailingSlash(input.controlBaseUrl)}/patch/apply`, input.controlToken, {
+  }): Promise<RunnerPatchOperationResponse> {
+    return this.postJson<RunnerPatchOperationResponse>(`${trimTrailingSlash(input.controlBaseUrl)}/patch/apply`, input.controlToken, {
+      workspaceRoot: input.workspaceRoot,
+      patch: input.patch,
+    });
+  }
+
+  async precheckPatch(input: {
+    controlBaseUrl: string;
+    controlToken: string;
+    workspaceRoot: string;
+    patch: string;
+  }): Promise<RunnerPatchOperationResponse> {
+    return this.postJson<RunnerPatchOperationResponse>(`${trimTrailingSlash(input.controlBaseUrl)}/patch/precheck`, input.controlToken, {
       workspaceRoot: input.workspaceRoot,
       patch: input.patch,
     });

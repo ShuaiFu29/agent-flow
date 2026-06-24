@@ -77,6 +77,34 @@ describe("workspace scan", () => {
     ).rejects.toThrow(/Sensitive file|not readable/i);
   });
 
+  it("still finds key files when maxEntries would otherwise be consumed by low-value generated directories", async () => {
+    const noisyFiles = Object.fromEntries(
+      Array.from({ length: 240 }, (_, index) => [
+        `.turbo/cache/file-${String(index).padStart(3, "0")}.txt`,
+        `cache-${index}\n`,
+      ]),
+    );
+    const workspaceRoot = await createWorkspace({
+      ...noisyFiles,
+      "package.json": JSON.stringify({ name: "demo-app", packageManager: "pnpm@10.0.0" }),
+      "apps/web/app/page.tsx": "export default function Page() { return <main />; }\n",
+      "packages/shared/src/index.ts": "export const value = 1;\n",
+    });
+
+    const response = await scanWorkspace({
+      workspaceRoot,
+      maxDepth: 4,
+      maxEntries: 50,
+    });
+
+    expect(response.keyFiles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "package.json" }),
+        expect.objectContaining({ path: "apps/web/app/page.tsx" }),
+      ]),
+    );
+  });
+
   async function createWorkspace(files: Record<string, string>): Promise<string> {
     const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "agent-flow-runner-"));
     tempRoots.push(workspaceRoot);

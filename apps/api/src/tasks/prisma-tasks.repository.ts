@@ -6,6 +6,9 @@ import type {
   Approval,
   Artifact,
   AuditEvent,
+  CommandRun,
+  ContextSnapshot,
+  PatchLifecycle,
   RunnerSession,
   Task,
   TaskSource,
@@ -214,6 +217,114 @@ export class PrismaTasksRepository implements TasksRepository {
     });
 
     return source ? mapTaskSource(source) : undefined;
+  }
+
+  async setContextSnapshot(snapshot: ContextSnapshot): Promise<ContextSnapshot> {
+    const createdSnapshot = await this.prisma.contextSnapshot.upsert({
+      where: { taskId: snapshot.taskId },
+      update: {
+        selectedFiles: JSON.stringify(snapshot.selectedFiles),
+        rejectedFiles: JSON.stringify(snapshot.rejectedFiles),
+      },
+      create: {
+        id: snapshot.id,
+        taskId: snapshot.taskId,
+        selectedFiles: JSON.stringify(snapshot.selectedFiles),
+        rejectedFiles: JSON.stringify(snapshot.rejectedFiles),
+        createdAt: new Date(snapshot.createdAt),
+      },
+    });
+
+    return mapContextSnapshot(createdSnapshot);
+  }
+
+  async getContextSnapshot(taskId: string): Promise<ContextSnapshot | undefined> {
+    const snapshot = await this.prisma.contextSnapshot.findUnique({
+      where: { taskId },
+    });
+
+    return snapshot ? mapContextSnapshot(snapshot) : undefined;
+  }
+
+  async setPatchLifecycle(lifecycle: PatchLifecycle): Promise<PatchLifecycle> {
+    const record = await this.prisma.patchLifecycle.upsert({
+      where: { taskId: lifecycle.taskId },
+      update: {
+        patchArtifactId: lifecycle.patchArtifactId,
+        approvalId: lifecycle.approvalId ?? null,
+        status: lifecycle.status,
+        precheck: JSON.stringify(lifecycle.precheck),
+        applyResult: lifecycle.applyResult ? JSON.stringify(lifecycle.applyResult) : null,
+        updatedAt: new Date(lifecycle.updatedAt),
+      },
+      create: {
+        id: lifecycle.id,
+        taskId: lifecycle.taskId,
+        patchArtifactId: lifecycle.patchArtifactId,
+        approvalId: lifecycle.approvalId ?? null,
+        status: lifecycle.status,
+        precheck: JSON.stringify(lifecycle.precheck),
+        applyResult: lifecycle.applyResult ? JSON.stringify(lifecycle.applyResult) : null,
+        createdAt: new Date(lifecycle.createdAt),
+        updatedAt: new Date(lifecycle.updatedAt),
+      },
+    });
+
+    return mapPatchLifecycle(record);
+  }
+
+  async getPatchLifecycle(taskId: string): Promise<PatchLifecycle | undefined> {
+    const lifecycle = await this.prisma.patchLifecycle.findUnique({
+      where: { taskId },
+    });
+
+    return lifecycle ? mapPatchLifecycle(lifecycle) : undefined;
+  }
+
+  async setCommandRun(commandRun: CommandRun): Promise<CommandRun> {
+    const record = await this.prisma.commandRun.upsert({
+      where: { id: commandRun.id },
+      update: {
+        taskId: commandRun.taskId,
+        approvalId: commandRun.approvalId ?? null,
+        command: commandRun.command,
+        status: commandRun.status,
+        exitCode: commandRun.exitCode ?? null,
+        stdout: commandRun.stdout ?? null,
+        stderr: commandRun.stderr ?? null,
+        startedAt: commandRun.startedAt ? new Date(commandRun.startedAt) : null,
+        completedAt: commandRun.completedAt ? new Date(commandRun.completedAt) : null,
+        outputArtifactId: commandRun.outputArtifactId ?? null,
+        createdAt: commandRun.createdAt ? new Date(commandRun.createdAt) : undefined,
+        updatedAt: commandRun.updatedAt ? new Date(commandRun.updatedAt) : undefined,
+      },
+      create: {
+        id: commandRun.id,
+        taskId: commandRun.taskId,
+        approvalId: commandRun.approvalId ?? null,
+        command: commandRun.command,
+        status: commandRun.status,
+        exitCode: commandRun.exitCode ?? null,
+        stdout: commandRun.stdout ?? null,
+        stderr: commandRun.stderr ?? null,
+        startedAt: commandRun.startedAt ? new Date(commandRun.startedAt) : null,
+        completedAt: commandRun.completedAt ? new Date(commandRun.completedAt) : null,
+        outputArtifactId: commandRun.outputArtifactId ?? null,
+        createdAt: commandRun.createdAt ? new Date(commandRun.createdAt) : undefined,
+        updatedAt: commandRun.updatedAt ? new Date(commandRun.updatedAt) : undefined,
+      },
+    });
+
+    return mapCommandRun(record);
+  }
+
+  async listCommandRuns(taskId: string): Promise<CommandRun[]> {
+    const commandRuns = await this.prisma.commandRun.findMany({
+      where: { taskId },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    });
+
+    return commandRuns.map(mapCommandRun);
   }
 
   async registerRunner(input: RegisterRunnerInput): Promise<{ workspace: Workspace; session: RunnerSession }> {
@@ -506,6 +617,80 @@ function mapTaskSource(source: {
     content: source.content,
     url: source.url ?? undefined,
     createdAt: source.createdAt.toISOString(),
+  };
+}
+
+function mapContextSnapshot(snapshot: {
+  id: string;
+  taskId: string;
+  selectedFiles: string;
+  rejectedFiles: string;
+  createdAt: Date;
+}): ContextSnapshot {
+  return {
+    id: snapshot.id,
+    taskId: snapshot.taskId,
+    selectedFiles: JSON.parse(snapshot.selectedFiles) as ContextSnapshot["selectedFiles"],
+    rejectedFiles: JSON.parse(snapshot.rejectedFiles) as ContextSnapshot["rejectedFiles"],
+    createdAt: snapshot.createdAt.toISOString(),
+  };
+}
+
+function mapPatchLifecycle(lifecycle: {
+  id: string;
+  taskId: string;
+  patchArtifactId: string;
+  approvalId: string | null;
+  status: string;
+  precheck: string;
+  applyResult: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}): PatchLifecycle {
+  return {
+    id: lifecycle.id,
+    taskId: lifecycle.taskId,
+    patchArtifactId: lifecycle.patchArtifactId,
+    approvalId: lifecycle.approvalId ?? undefined,
+    status: lifecycle.status as PatchLifecycle["status"],
+    precheck: JSON.parse(lifecycle.precheck) as PatchLifecycle["precheck"],
+    applyResult: lifecycle.applyResult
+      ? (JSON.parse(lifecycle.applyResult) as PatchLifecycle["applyResult"])
+      : undefined,
+    createdAt: lifecycle.createdAt.toISOString(),
+    updatedAt: lifecycle.updatedAt.toISOString(),
+  };
+}
+
+function mapCommandRun(commandRun: {
+  id: string;
+  taskId: string;
+  approvalId: string | null;
+  command: string;
+  status: string;
+  exitCode: number | null;
+  stdout: string | null;
+  stderr: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  startedAt: Date | null;
+  completedAt: Date | null;
+  outputArtifactId: string | null;
+}): CommandRun {
+  return {
+    id: commandRun.id,
+    taskId: commandRun.taskId,
+    approvalId: commandRun.approvalId ?? undefined,
+    command: commandRun.command,
+    status: commandRun.status as CommandRun["status"],
+    exitCode: commandRun.exitCode ?? undefined,
+    stdout: commandRun.stdout ?? undefined,
+    stderr: commandRun.stderr ?? undefined,
+    createdAt: commandRun.createdAt.toISOString(),
+    updatedAt: commandRun.updatedAt.toISOString(),
+    startedAt: commandRun.startedAt?.toISOString(),
+    completedAt: commandRun.completedAt?.toISOString(),
+    outputArtifactId: commandRun.outputArtifactId ?? undefined,
   };
 }
 
